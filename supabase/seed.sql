@@ -34,3 +34,6 @@ insert into public.site_settings (id, data) values (1, '{
   "demo_note": true
 }'::jsonb)
 on conflict (id) do nothing;
+
+-- способы доставки и оплаты по умолчанию
+select public.ensure_settings_defaults();

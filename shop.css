@@ -1,0 +1,66 @@
+/* Общие стили страниц оформления, заказа и документов. Главная страница держит свои стили внутри index.html. */
+:root{
+  --night:#150B2E; --dusk:#3B1466; --pink:#FF3D9A; --orange:#FF8A3D; --sun:#FFD45C; --teal:#2FE6D0;
+  --bg:#FFF6EE; --card:#FFFFFF; --soft:#F6E9E0; --ink:#1E1036; --muted:#6B5D80; --line:#E7D6CB; --accent:#E0247F; --ok:#0E9F84; --bad:#D3244F;
+  --display:"Oswald","Arial Narrow",Impact,sans-serif;
+  --body:"Manrope","Segoe UI",system-ui,-apple-system,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#150B2E; --card:#21133F; --soft:#1C0F39; --ink:#FFF4EA; --muted:#B3A4CC; --line:#372458; --accent:#FF3D9A; --ok:#2FE6D0; --bad:#FF6B8A;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#150B2E; --card:#21133F; --soft:#1C0F39; --ink:#FFF4EA; --muted:#B3A4CC; --line:#372458; --accent:#FF3D9A; --ok:#2FE6D0; --bad:#FF6B8A;
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.55 var(--body);-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;flex-direction:column}
+main{flex:1}
+a{color:inherit}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--teal);outline-offset:2px;border-radius:6px}
+[hidden]{display:none!important}
+.wrap{max-width:1100px;margin:0 auto;padding:0 16px}
+h1,h2,h3{font-family:var(--display);font-weight:700;text-transform:uppercase;line-height:1.05;margin:0;letter-spacing:.005em}
+h1{font-size:clamp(32px,5vw,48px)}
+h2{font-size:22px}
+.muted{color:var(--muted)}
+
+header{position:sticky;top:0;z-index:50;background:var(--night);color:#FFF4EA}
+.hbar{display:flex;align-items:center;justify-content:space-between;gap:16px;height:60px}
+.logo{font-family:var(--display);font-weight:700;font-size:21px;text-transform:uppercase;text-decoration:none;letter-spacing:.03em;white-space:nowrap}
+.logo i{font-style:normal;color:var(--pink)}
+.back{text-decoration:none;font-weight:600;opacity:.8;font-size:15px}
+.back:hover{opacity:1}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:12px;padding:15px 24px;font-weight:700;cursor:pointer;text-decoration:none;min-height:52px}
+.btn-pink{background:var(--accent);color:#fff}
+.btn-ghost{background:var(--soft);color:var(--ink)}
+.btn:disabled{opacity:.6;cursor:default}
+.btn.wide{width:100%}
+.field{width:100%;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;min-height:48px}
+.field:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+textarea.field{min-height:84px;resize:vertical}
+label.f{display:grid;gap:6px;font-weight:600;font-size:14px}
+label.f small{font-weight:500;color:var(--muted)}
+.err{color:var(--bad);font-size:14px;min-height:1.2em;margin:8px 0 0;font-weight:600}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:640px){.grid2{grid-template-columns:1fr}}
+
+.rowx{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font-size:15px}
+.rowx.tot{font-weight:700;font-size:17px}
+.rowx.tot .price{font-size:28px;font-family:var(--display)}
+.rowx.disc{color:var(--ok);font-weight:600}
+.lines{display:grid;gap:10px}
+.line{display:grid;grid-template-columns:1fr auto;gap:10px;font-size:15px}
+.line small{display:block;color:var(--muted)}
+
+footer{background:var(--night);color:#FFF4EA;padding:24px 0;margin-top:48px;font-size:14px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:space-between}
+footer a{opacity:.8;text-decoration:none}
+footer a:hover{opacity:1}

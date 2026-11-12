@@ -81,9 +81,9 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
 .swatch{width:44px;height:44px;border-radius:8px;display:block}
 
 .st{display:inline-block;border-radius:20px;padding:2px 10px;font-size:12px;font-weight:700;white-space:nowrap;background:var(--soft)}
-.st.new{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
+.st.new,.st.paid{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
+.st.pending{background:transparent;border:1px dashed var(--line);color:var(--muted)}
 .st.contacted{background:color-mix(in srgb,var(--info) 16%,transparent);color:var(--info)}
-.st.paid{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
 .st.shipped{background:color-mix(in srgb,var(--info) 16%,transparent);color:var(--info)}
 .st.done{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
 .st.canceled{color:var(--muted)}
@@ -101,6 +101,9 @@ dialog h3{margin:0;font-size:18px}
 .items{border:1px solid var(--line);border-radius:12px;overflow:hidden}
 .items div{display:flex;justify-content:space-between;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line)}
 .items div:last-child{border-bottom:0}
+.paybox{display:flex;gap:12px;align-items:center;justify-content:space-between;background:var(--soft);border-radius:12px;padding:12px 14px;font-size:13px}
+.stat.click{cursor:pointer}
+.stat.click:hover{border-color:var(--accent)}
 .check{display:flex;gap:8px;align-items:center;font-weight:600;color:var(--ink)}
 .check input{width:18px;height:18px;accent-color:var(--accent)}
 .imgbox{display:flex;gap:12px;align-items:center}
@@ -109,6 +112,10 @@ dialog h3{margin:0;font-size:18px}
 .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;display:grid;gap:14px;margin-bottom:16px;max-width:760px}
 .panel h3{margin:0;font-size:16px}
 .setup-row{display:grid;grid-template-columns:1fr 160px;gap:10px}
+.drow{display:grid;grid-template-columns:110px 1fr 130px;gap:10px;align-items:end;padding-top:12px;border-top:1px solid var(--line)}
+.drow .span{grid-column:2 / -1}
+.drow .check{min-height:40px}
+@media (max-width:860px){.drow{grid-template-columns:1fr 1fr}.drow .check,.drow .span{grid-column:1 / -1}}
 
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:10px;font-weight:600;opacity:0;transition:.2s;pointer-events:none;z-index:100}
 .toast.show{opacity:1;transform:translateX(-50%)}
@@ -172,7 +179,8 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const fmt = n => Math.round(n || 0).toLocaleString("ru-RU") + " ₸";
 const dt = s => new Date(s).toLocaleString("ru-RU", {day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"});
 const phoneFmt = p => { const d = String(p||"").replace(/\D/g,""); return d.length === 11 ? `+${d[0]} ${d.slice(1,4)} ${d.slice(4,7)} ${d.slice(7,9)} ${d.slice(9)}` : "+" + d; };
-const STATUS = {new:"Новый", contacted:"Связались", paid:"Оплачен", shipped:"Отправлен", done:"Выполнен", canceled:"Отменён"};
+const STATUS = {paid:"Оплачен · к отгрузке", shipped:"Отправлен", done:"Доставлен", pending:"Ждёт оплаты", new:"Новая заявка", contacted:"Связались", canceled:"Отменён"};
+const ORDER_STATUSES = ["pending","paid","shipped","done","canceled"], PRE_STATUSES = ["new","contacted","done","canceled"];
 const stBadge = s => `<span class="st ${s}">${STATUS[s] || s}</span>`;
 let tt; function toast(t){ const el = $("#toast"); el.textContent = t; el.classList.add("show"); clearTimeout(tt); tt = setTimeout(() => el.classList.remove("show"), 2400); }
 const fail = e => { console.error(e); toast("Ошибка: " + (e.message || e)); };
@@ -208,13 +216,18 @@ async function boot(session){
   document.querySelector('[data-tab="staff"]').hidden = ROLE !== "admin";
   const h = location.hash.slice(1); show(h && TABS[h] ? h : "orders");
   refreshNewCount();
-  sb.channel("orders").on("postgres_changes", {event:"INSERT", schema:"public", table:"orders"}, p => {
-    toast(`Новый ${p.new.kind === "preorder" ? "предзаказ" : "заказ"} №${p.new.id}`);
-    refreshNewCount(); if(TAB === "orders") TABS.orders();
-  }).subscribe();
+  sb.channel("orders")
+    .on("postgres_changes", {event:"INSERT", schema:"public", table:"orders"}, p => {
+      if(p.new.kind === "preorder") toast(`Новая заявка на предзаказ №${p.new.id}`);
+      refreshNewCount(); if(TAB === "orders") TABS.orders();
+    })
+    .on("postgres_changes", {event:"UPDATE", schema:"public", table:"orders"}, p => {
+      if(p.new.status === "paid" && p.new.paid_at && Date.now() - new Date(p.new.paid_at) < 60000) toast(`Оплачен заказ №${p.new.id} — к отгрузке`);
+      refreshNewCount(); if(TAB === "orders" && !$("#dlg").open) TABS.orders();
+    }).subscribe();
 }
 async function refreshNewCount(){
-  const { count } = await sb.from("orders").select("id", {count:"exact", head:true}).eq("status","new");
+  const { count } = await sb.from("orders").select("id", {count:"exact", head:true}).in("status", ["paid","new"]);
   $("#newCount").hidden = !count; $("#newCount").textContent = count || "";
 }
 
@@ -254,81 +267,109 @@ const TABS = {};
 
 /* ───────── заказы ───────── */
 const OF = {status:"active", q:"", period:"30"};
+const FILTERS = {active:"В работе", ship:"К отгрузке", pending:"Ждут оплаты", pre:"Заявки на предзаказ", all:"Все", done:"Доставлены", canceled:"Отменённые"};
+const deliveryLine = o => [o.delivery_name, o.city, o.address].filter(Boolean).join(", ");
 TABS.orders = async () => {
+  sb.rpc("expire_pending").then(() => {});
   let q = sb.from("orders").select("*").order("created_at", {ascending:false}).limit(500);
   if(OF.period !== "all") q = q.gte("created_at", new Date(Date.now() - OF.period * 864e5).toISOString());
   const { data, error } = await q; if(error) throw error;
-  const live = data.filter(o => o.status !== "canceled");
-  const today = new Date(); today.setHours(0,0,0,0);
-  const revenue = live.filter(o => ["paid","shipped","done"].includes(o.status)).reduce((s,o) => s + o.total, 0);
-  const avg = live.filter(o => o.kind === "order").length ? live.filter(o => o.kind === "order").reduce((s,o) => s + o.total, 0) / live.filter(o => o.kind === "order").length : 0;
+  const paid = data.filter(o => ["paid","shipped","done"].includes(o.status));
+  const revenue = paid.reduce((s,o) => s + o.total, 0);
   let list = data;
-  if(OF.status === "active") list = list.filter(o => !["done","canceled"].includes(o.status));
-  else if(OF.status !== "all") list = list.filter(o => o.status === OF.status);
+  const f = OF.status;
+  if(f === "active") list = list.filter(o => ["paid","shipped","new","contacted"].includes(o.status));
+  else if(f === "ship") list = list.filter(o => o.status === "paid");
+  else if(f === "pending") list = list.filter(o => o.status === "pending");
+  else if(f === "pre") list = list.filter(o => o.kind === "preorder");
+  else if(f !== "all") list = list.filter(o => o.status === f);
+  if(f === "ship") list = [...list].reverse();   // к отгрузке — сначала самые старые оплаты
   if(OF.q){ const s = OF.q.toLowerCase(), d = s.replace(/\D/g,""); list = list.filter(o => String(o.id) === s.replace("№","") || o.name.toLowerCase().includes(s) || (d && o.phone.includes(d))); }
   const period = {"1":"сегодня","7":"за 7 дней","30":"за 30 дней","all":"за всё время"}[OF.period];
+  const pendingN = data.filter(o => o.status === "pending").length;
   $("#main").innerHTML = `
     <h2>Заказы</h2>
     <div class="stats">
-      <div class="stat"><small>Заявок ${period}</small><b>${live.length}</b></div>
-      <div class="stat"><small>Новых, ждут ответа</small><b>${data.filter(o => o.status === "new").length}</b></div>
+      <div class="stat click" data-f="ship"><small>К отгрузке</small><b>${data.filter(o => o.status === "paid").length}</b></div>
+      <div class="stat click" data-f="pending"><small>Ждут оплаты</small><b>${pendingN}</b></div>
       <div class="stat"><small>Выручка ${period}</small><b>${fmt(revenue)}</b></div>
-      <div class="stat"><small>Средний чек</small><b>${fmt(avg)}</b></div>
+      <div class="stat"><small>Оплаченных заказов · средний чек</small><b>${paid.length} · ${fmt(paid.length ? revenue / paid.length : 0)}</b></div>
     </div>
     <div class="bar">
       <input class="field grow" id="oq" type="search" placeholder="Номер, имя или телефон" value="${esc(OF.q)}">
-      <select class="field" id="os">
-        <option value="active">В работе</option><option value="all">Все статусы</option>
-        ${Object.entries(STATUS).map(([k,v]) => `<option value="${k}">${v}</option>`).join("")}
-      </select>
+      <select class="field" id="os">${Object.entries(FILTERS).map(([k,v]) => `<option value="${k}">${v}</option>`).join("")}</select>
       <select class="field" id="op"><option value="1">Сегодня</option><option value="7">7 дней</option><option value="30">30 дней</option><option value="all">Всё время</option></select>
       <button class="btn" id="oexp">Скачать CSV</button>
     </div>
+    ${f === "pending" ? `<p class="muted" style="margin:-4px 0 14px">Покупатель оформил заказ, но ещё не оплатил. Через 24 часа без оплаты заказ отменяется сам. Если клиент оплатил переводом, откройте заказ и нажмите «Подтвердить оплату».</p>` : ""}
     <div class="table"><table>
-      <thead><tr><th>№</th><th class="hide-m">Дата</th><th>Клиент</th><th class="hide-m">Состав</th><th class="num">Сумма</th><th>Статус</th></tr></thead>
+      <thead><tr><th>№</th><th class="hide-m">Дата</th><th>Клиент</th><th class="hide-m">Состав</th><th class="hide-m">Доставка</th><th class="num">Сумма</th><th>Статус</th></tr></thead>
       <tbody>${list.map(o => `
         <tr class="click" data-id="${o.id}">
           <td><b>${o.id}</b></td><td class="muted hide-m">${dt(o.created_at)}</td>
           <td>${esc(o.name)}<br><span class="muted">${phoneFmt(o.phone)}</span></td>
           <td class="hide-m">${o.kind === "preorder" ? `<i>Предзаказ:</i> ${esc(o.request)}` : o.items.map(i => `${esc(i.name)} × ${i.qty}`).join("<br>")}</td>
+          <td class="hide-m muted">${esc(deliveryLine(o)) || "—"}</td>
           <td class="num">${o.kind === "preorder" ? "—" : fmt(o.total)}</td><td>${stBadge(o.status)}</td>
         </tr>`).join("")}</tbody>
-    </table>${list.length ? "" : `<div class="empty">Заказов нет</div>`}</div>`;
+    </table>${list.length ? "" : `<div class="empty">${f === "ship" ? "Нечего отгружать — все оплаченные заказы отправлены" : "Заказов нет"}</div>`}</div>`;
   $("#os").value = OF.status; $("#op").value = OF.period;
+  document.querySelectorAll(".stat[data-f]").forEach(el => el.onclick = () => { OF.status = el.dataset.f; TABS.orders(); });
   $("#oq").oninput = e => { OF.q = e.target.value.trim(); clearTimeout(OF.t); OF.t = setTimeout(() => TABS.orders().then(() => { const i = $("#oq"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }), 250); };
   $("#os").onchange = e => { OF.status = e.target.value; TABS.orders(); };
   $("#op").onchange = e => { OF.period = e.target.value; TABS.orders(); };
   $("#oexp").onclick = () => csv(`orders-${new Date().toISOString().slice(0,10)}.csv`,
-    [["№","Дата","Тип","Статус","Имя","Телефон","Состав","Сумма","Скидка","Промокод","Заметка"],
-     ...list.map(o => [o.id, new Date(o.created_at).toLocaleString("ru-RU"), o.kind === "preorder" ? "Предзаказ" : "Заказ", STATUS[o.status], o.name, "+" + o.phone,
-       o.kind === "preorder" ? o.request : o.items.map(i => `${i.name} × ${i.qty}`).join("; "), o.total, o.discount, o.promo_code || "", o.manager_note])]);
+    [["№","Дата","Тип","Статус","Имя","Телефон","Email","Состав","Товары","Скидка","Промокод","Доставка","Стоимость доставки","Итого","Оплачен","Комментарий","Заметка"],
+     ...list.map(o => [o.id, new Date(o.created_at).toLocaleString("ru-RU"), o.kind === "preorder" ? "Предзаказ" : "Заказ", STATUS[o.status], o.name, "+" + o.phone, o.email || "",
+       o.kind === "preorder" ? o.request : o.items.map(i => `${i.name} × ${i.qty}`).join("; "), o.subtotal, o.discount, o.promo_code || "", deliveryLine(o), o.delivery_cost || 0, o.total,
+       o.paid_at ? new Date(o.paid_at).toLocaleString("ru-RU") : "", o.comment || "", o.manager_note])]);
   document.querySelectorAll("tr[data-id]").forEach(tr => tr.onclick = () => orderDialog(data.find(o => o.id == tr.dataset.id)));
 };
 function orderDialog(o){
-  const wa = `https://wa.me/${o.phone}`;
+  const wa = `https://wa.me/${o.phone}`, pre = o.kind === "preorder";
+  const opts = (pre ? PRE_STATUSES : ORDER_STATUSES).concat(pre || ORDER_STATUSES.includes(o.status) ? [] : [o.status]);
+  const PROV = {manual:"подтверждено вручную"};
   openDialog(`
-    <h3>${o.kind === "preorder" ? "Предзаказ" : "Заказ"} №${o.id} <span class="muted" style="font-weight:500;font-size:14px">от ${new Date(o.created_at).toLocaleString("ru-RU")}</span></h3>
+    <h3>${pre ? "Заявка на предзаказ" : "Заказ"} №${o.id} <span class="muted" style="font-weight:500;font-size:14px">от ${new Date(o.created_at).toLocaleString("ru-RU")}</span></h3>
     <div class="grid2">
-      <div><b>${esc(o.name)}</b><br><a href="tel:+${o.phone}">${phoneFmt(o.phone)}</a> · <a href="${wa}" target="_blank" rel="noopener">WhatsApp</a></div>
-      <label>Статус<select class="field" name="status">${Object.entries(STATUS).map(([k,v]) => `<option value="${k}" ${k === o.status ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+      <div><b>${esc(o.name)}</b><br><a href="tel:+${o.phone}">${phoneFmt(o.phone)}</a> · <a href="${wa}" target="_blank" rel="noopener">WhatsApp</a>${o.email ? `<br><a href="mailto:${esc(o.email)}">${esc(o.email)}</a>` : ""}</div>
+      <label>Статус<select class="field" name="status">${opts.map(k => `<option value="${k}" ${k === o.status ? "selected" : ""} ${k === "paid" && o.status === "pending" ? "disabled" : ""}>${STATUS[k]}</option>`).join("")}</select></label>
     </div>
-    ${o.kind === "preorder" ? `<div class="items"><div>${esc(o.request)}</div></div>` : `
+    ${o.status === "pending" ? `<div class="paybox"><span>Оплата не поступила. Если клиент оплатил переводом или по счёту Kaspi, подтвердите — заказ уйдёт в отгрузку, остатки спишутся.</span><button class="btn pri sm" value="confirm" formnovalidate>Подтвердить оплату</button></div>` : ""}
+    ${pre ? `<div class="items"><div>${esc(o.request)}</div></div>` : `
     <div class="items">
       ${o.items.map(i => `<div><span>${esc(i.name)} × ${i.qty}</span><span>${fmt(i.price * i.qty)}</span></div>`).join("")}
       ${o.discount ? `<div class="muted"><span>Промокод ${esc(o.promo_code)}</span><span>−${fmt(o.discount)}</span></div>` : ""}
+      ${o.delivery_name ? `<div><span>${esc(o.delivery_name)}</span><span>${o.delivery_cost ? fmt(o.delivery_cost) : "бесплатно"}</span></div>` : ""}
       <div><b>Итого</b><b>${fmt(o.total)}</b></div>
-    </div>`}
-    <label>Заметка менеджера<textarea class="field" name="note" placeholder="Адрес доставки, трек-номер, договорённости">${esc(o.manager_note)}</textarea></label>
+    </div>
+    ${o.address || o.city ? `<div><span class="muted">Адрес доставки:</span> ${esc([o.city, o.address].filter(Boolean).join(", "))}</div>` : ""}
+    ${o.comment ? `<div><span class="muted">Комментарий покупателя:</span> ${esc(o.comment)}</div>` : ""}
+    ${o.paid_at ? `<div class="muted">Оплачен ${new Date(o.paid_at).toLocaleString("ru-RU")} · ${esc(PROV[o.payment_provider] || o.payment_provider || "")}${o.payment_id ? " · " + esc(o.payment_id) : ""}</div>` : ""}`}
+    <label>Заметка менеджера<textarea class="field" name="note" placeholder="Трек-номер, договорённости">${esc(o.manager_note)}</textarea></label>
     <div class="actions">
-      ${ROLE === "admin" ? `<button class="btn danger left" value="delete">Удалить</button>` : ""}
+      ${ROLE === "admin" ? `<button class="btn danger left" value="delete" formnovalidate>Удалить</button>` : ""}
       <button class="btn" value="cancel" formnovalidate>Закрыть</button>
       <button class="btn pri" value="save">Сохранить</button>
     </div>`, async (act, f) => {
       if(act === "delete"){
         if(!confirm(`Удалить заказ №${o.id} без возможности восстановления?`)) return false;
         const { error } = await sb.from("orders").delete().eq("id", o.id); if(error) throw error; toast("Заказ удалён");
+      } else if(act === "confirm"){
+        if(!confirm(`Подтвердить оплату заказа №${o.id} на ${fmt(o.total)}? Деньги должны уже поступить на счёт.`)) return false;
+        const r = await sb.rpc("confirm_payment", {p_id: o.id, p_provider: "manual"}); if(r.error) throw r.error;
+        if(f.note.value !== o.manager_note){ const u = await sb.from("orders").update({manager_note: f.note.value}).eq("id", o.id); if(u.error) throw u.error; }
+        toast(`Заказ №${o.id} оплачен — к отгрузке`);
       } else {
-        const { error } = await sb.from("orders").update({status: f.status.value, manager_note: f.note.value}).eq("id", o.id); if(error) throw error; toast("Сохранено");
+        // перевод в «оплачен» всегда через confirm_payment: так ставится дата оплаты и списываются остатки
+        if(!pre && f.status.value === "paid" && !["paid","shipped","done"].includes(o.status)){
+          if(!confirm(`Подтвердить оплату заказа №${o.id} на ${fmt(o.total)}?`)) return false;
+          const r = await sb.rpc("confirm_payment", {p_id: o.id, p_provider: "manual"}); if(r.error) throw r.error;
+          const u = await sb.from("orders").update({manager_note: f.note.value}).eq("id", o.id); if(u.error) throw u.error;
+        } else {
+          const { error } = await sb.from("orders").update({status: f.status.value, manager_note: f.note.value}).eq("id", o.id); if(error) throw error;
+        }
+        toast("Сохранено");
       }
       refreshNewCount(); TABS.orders();
     });
@@ -368,6 +409,7 @@ function customerDialog(c){
       <label>Имя<input class="field" name="name" value="${esc(c.name)}"></label>
       <label>Телефон<input class="field" value="${phoneFmt(c.phone)}" disabled></label>
     </div>
+    ${c.email ? `<div><span class="muted">Email:</span> <a href="mailto:${esc(c.email)}">${esc(c.email)}</a></div>` : ""}
     <div><a href="tel:+${c.phone}">Позвонить</a> · <a href="https://wa.me/${c.phone}" target="_blank" rel="noopener">Написать в WhatsApp</a></div>
     <label>Заметки<textarea class="field" name="notes" placeholder="Предпочтения, адрес, договорённости">${esc(c.notes)}</textarea></label>
     <div><b>История заказов</b> · оплачено ${fmt(c.spent)}</div>
@@ -523,6 +565,21 @@ TABS.settings = async () => {
       <div class="panel"><h3>Подборка «Сетап к релизу»</h3>
         ${[0,1,2,3].map(i => `<div class="setup-row"><select class="field" name="sp${i}"><option value="">— не показывать —</option>${opts((setup[i]||{}).id)}</select><input class="field" name="sr${i}" value="${esc((setup[i]||{}).role)}" placeholder="Подпись: Звук, Мышь…"></div>`).join("")}
       </div>
+      <div class="panel"><h3>Доставка</h3>
+        <p class="muted" style="margin:0">Цена доставки прибавляется к заказу. От суммы «бесплатная доставка от» (после скидки) любая доставка бесплатна.</p>
+        ${(s.delivery || []).map((d, i) => `<div class="drow">
+          <label class="check"><input type="checkbox" name="de${i}" ${d.enabled !== false ? "checked" : ""}> Включена</label>
+          <label>Название<input class="field" name="dn${i}" value="${esc(d.name)}"></label>
+          <label>Цена, ₸<input class="field" name="dp${i}" type="number" min="0" step="100" value="${+d.price || 0}"></label>
+          <label class="span">Пояснение для покупателя<input class="field" name="dt${i}" value="${esc(d.note)}"></label></div>`).join("")}
+      </div>
+      <div class="panel"><h3>Оплата</h3>
+        <label>Способ приёма оплаты<select class="field" name="pmode">
+          <option value="manual">Вручную: менеджер присылает счёт Kaspi и подтверждает оплату в админке</option>
+          <option value="bank" disabled>Онлайн через банк — появится после подключения платёжной системы</option>
+        </select></label>
+        <label>Что увидит покупатель после оформления<textarea class="field" name="ptext">${esc((s.payment || {}).manual_text)}</textarea></label>
+      </div>
       <div class="panel"><h3>Прочее</h3>
         <label class="check"><input type="checkbox" name="demo_note" ${s.demo_note !== false ? "checked" : ""}> Показывать в каталоге строку «Товары и цены — примеры»</label>
       </div>
@@ -535,6 +592,8 @@ TABS.settings = async () => {
       wa: f.wa.value.replace(/\D/g,""), free_from: +f.free_from.value || 0, release: fromLocal(f.release.value) || s.release,
       promo: code ? {code, percent: +f.percent.value || 0, until: fromLocal(f.until.value) || new Date(Date.now() + 7*864e5).toISOString(), untilText: f.untilText.value.trim()} : null,
       setup: [0,1,2,3].map(i => ({id: f["sp"+i].value, role: f["sr"+i].value.trim()})).filter(x => x.id),
+      delivery: (s.delivery || []).map((d, i) => ({...d, enabled: f["de"+i].checked, name: f["dn"+i].value.trim() || d.name, price: +f["dp"+i].value || 0, note: f["dt"+i].value.trim()})),
+      payment: {...(s.payment || {}), mode: f.pmode.value, manual_text: f.ptext.value.trim()},
       demo_note: f.demo_note.checked};
     const { error } = await sb.from("site_settings").upsert({id:1, data:next});
     btn.disabled = false;

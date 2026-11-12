@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Оформление заказа — Almaty Device</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shop.css">
+<style>
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:24px;align-items:start;margin-top:22px}
+.steps{display:grid;gap:16px}
+.card h2{margin-bottom:14px}
+.opts{display:grid;gap:10px}
+.opt{display:grid;grid-template-columns:22px 1fr auto;gap:12px;align-items:start;border:1.5px solid var(--line);border-radius:14px;padding:14px;cursor:pointer;background:var(--card)}
+.opt:has(input:checked){border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.opt input{width:20px;height:20px;margin:2px 0 0;accent-color:var(--accent)}
+.opt b{display:block}
+.opt small{color:var(--muted);display:block;margin-top:2px}
+.opt .p{font-weight:700;white-space:nowrap}
+.pay{display:flex;gap:12px;align-items:flex-start;background:var(--soft);border-radius:12px;padding:14px;font-size:15px}
+.pay svg{flex:none;width:22px;height:22px;color:var(--accent);margin-top:1px}
+.agree{display:flex;gap:10px;align-items:flex-start;font-size:14px;margin-top:4px;cursor:pointer}
+.agree input{width:20px;height:20px;flex:none;margin:1px 0 0;accent-color:var(--accent)}
+aside.sum{position:sticky;top:80px;display:grid;gap:12px}
+.sum .line{align-items:start}
+.sum .edit{font-size:14px;color:var(--accent);font-weight:600}
+.pc{display:grid;grid-template-columns:1fr auto;gap:8px}
+.pc button{border:1px solid var(--line);background:var(--soft);border-radius:12px;padding:0 16px;font-weight:700;cursor:pointer}
+.hr{height:1px;background:var(--line);margin:4px 0}
+.state{padding:60px 0;text-align:center;display:grid;gap:16px;justify-items:center}
+.secure{font-size:13px;color:var(--muted);text-align:center;margin:0}
+@media (max-width:900px){
+  .layout{grid-template-columns:1fr}
+  aside.sum{position:static;order:-1}
+}
+</style>
+</head>
+<body>
+<header><div class="wrap hbar"><a class="logo" href="./">Almaty <i>Device</i></a><a class="back" href="./#catalog">← В магазин</a></div></header>
+
+<main class="wrap">
+  <div style="margin-top:28px"><h1>Оформление заказа</h1></div>
+
+  <div class="state" id="loading"><p class="muted">Загружаем корзину…</p></div>
+  <div class="state" id="empty" hidden>
+    <p style="font-size:18px">Корзина пуста.</p>
+    <a class="btn btn-pink" href="./#catalog">Перейти в каталог</a>
+  </div>
+  <div class="state" id="failed" hidden>
+    <p style="font-size:18px" id="failedText">Не удалось загрузить магазин.</p>
+    <button class="btn btn-ghost" onclick="location.reload()">Обновить страницу</button>
+  </div>
+
+  <form class="layout" id="form" novalidate hidden>
+    <div class="steps">
+      <section class="card">
+        <h2>1. Контакты</h2>
+        <div class="grid2">
+          <label class="f">Имя и фамилия<input class="field" name="name" autocomplete="name" required></label>
+          <label class="f">Телефон<input class="field" name="phone" type="tel" autocomplete="tel" placeholder="+7 7__ ___ __ __" required></label>
+        </div>
+        <label class="f" style="margin-top:12px">Email <small>для электронного чека, необязательно</small><input class="field" name="email" type="email" autocomplete="email"></label>
+      </section>
+
+      <section class="card">
+        <h2>2. Доставка</h2>
+        <div class="opts" id="delivery"></div>
+        <div id="addrBox" style="margin-top:14px;display:grid;gap:12px">
+          <label class="f" id="cityBox">Город<input class="field" name="city" autocomplete="address-level2"></label>
+          <label class="f">Адрес<input class="field" name="address" autocomplete="street-address" placeholder="Улица, дом, квартира или офис"></label>
+        </div>
+        <label class="f" style="margin-top:12px">Комментарий к заказу <small>необязательно</small><textarea class="field" name="comment" placeholder="Удобное время доставки, подъезд, этаж"></textarea></label>
+      </section>
+
+      <section class="card">
+        <h2>3. Оплата</h2>
+        <div class="pay"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg><span id="payText"></span></div>
+        <label class="agree"><input type="checkbox" name="agree"> <span>Я согласен с <a href="offer.html" target="_blank">публичной офертой</a> и <a href="privacy.html" target="_blank">политикой конфиденциальности</a>, включая условия доставки и возврата.</span></label>
+        <p class="err" id="err" role="alert"></p>
+        <button class="btn btn-pink wide" id="submit" type="submit"></button>
+        <p class="secure" id="secure"></p>
+      </section>
+    </div>
+
+    <aside class="sum card">
+      <div class="rowx"><h2>Ваш заказ</h2><a class="edit" href="./#catalog">Изменить</a></div>
+      <div class="lines" id="lines"></div>
+      <div class="hr"></div>
+      <div class="pc"><input class="field" id="promo" placeholder="Промокод" autocapitalize="characters" aria-label="Промокод"><button type="button" id="promoBtn">Применить</button></div>
+      <p class="err" id="promoErr" style="margin:0;min-height:0"></p>
+      <div class="rowx"><span>Товары</span><span id="sub"></span></div>
+      <div class="rowx disc" id="discRow" hidden><span id="discLabel"></span><span id="disc"></span></div>
+      <div class="rowx"><span>Доставка</span><span id="ship"></span></div>
+      <div class="hr"></div>
+      <div class="rowx tot"><span>Итого</span><span class="price" id="total"></span></div>
+    </aside>
+  </form>
+</main>
+
+<footer><div class="wrap"><span>© Almaty Device</span><span><a href="offer.html">Оферта</a> · <a href="privacy.html">Конфиденциальность</a></span></div></footer>
+
+<script src="config.js"></script>
+<script type="module">
+import { $, fmt, esc, api, rpc, settings, cart, contact, startPayment } from "./shop.js";
+
+let ST = {}, PRODUCTS = [], items = [], promo = null;
+
+function show(id){ ["loading","empty","failed","form"].forEach(x => $("#" + x).hidden = x !== id); }
+
+try{
+  const c = cart.get(), ids = Object.keys(c);
+  if(!ids.length){ show("empty"); throw null; }
+  [ST, PRODUCTS] = await Promise.all([settings(), api(`products?select=id,name,brand,price,stock,image_url,color&active=eq.true&id=in.(${ids.map(encodeURIComponent).join(",")})`)]);
+  items = ids.map(id => ({p: PRODUCTS.find(p => p.id === id), qty: c[id]})).filter(x => x.p);
+  if(!items.length){ cart.clear(); show("empty"); throw null; }
+  init();
+  show("form");
+}catch(e){
+  if(e){ $("#failedText").textContent = "Не удалось загрузить магазин: " + e.message; show("failed"); }
+}
+
+function init(){
+  const pr = ST.promo;
+  const code = cart.promo();
+  if(pr && pr.code && code && code.toUpperCase() === String(pr.code).toUpperCase() && Date.now() <= new Date(pr.until).getTime()) promo = pr;
+  if(promo) $("#promo").value = promo.code;
+
+  const del = (ST.delivery || []).filter(d => d.enabled !== false);
+  $("#delivery").innerHTML = del.map((d, i) => `
+    <label class="opt"><input type="radio" name="delivery" value="${esc(d.id)}" ${i === 0 ? "checked" : ""}>
+      <span><b>${esc(d.name)}</b>${d.note ? `<small>${esc(d.note)}</small>` : ""}</span><span class="p" data-price="${esc(d.id)}"></span></label>`).join("");
+
+  const manual = !ST.payment || (ST.payment.mode || "manual") === "manual";
+  $("#payText").textContent = manual
+    ? "Менеджер подтвердит наличие и пришлёт счёт Kaspi в WhatsApp. Заказ уйдёт в сборку сразу после оплаты."
+    : "Оплата картой или Kaspi на защищённой странице банка. Заказ уйдёт в сборку сразу после оплаты.";
+  $("#secure").textContent = manual ? "" : "Данные карты вводятся на странице банка, мы их не видим и не храним.";
+
+  const saved = contact.get(), f = $("#form");
+  ["name","phone","email","city","address"].forEach(k => { if(saved[k]) f[k].value = saved[k]; });
+  if(saved.delivery && f.querySelector(`input[name=delivery][value="${saved.delivery}"]`)) f.querySelector(`input[name=delivery][value="${saved.delivery}"]`).checked = true;
+
+  f.addEventListener("change", e => { if(e.target.name === "delivery") render(); });
+  $("#promoBtn").onclick = applyPromo;
+  $("#promo").onkeydown = e => { if(e.key === "Enter"){ e.preventDefault(); applyPromo(); } };
+  f.onsubmit = submit;
+  render();
+}
+
+function applyPromo(){
+  const v = $("#promo").value.trim().toUpperCase(), pr = ST.promo;
+  if(!v){ promo = null; cart.setPromo(""); $("#promoErr").textContent = ""; return render(); }
+  if(pr && pr.code && v === String(pr.code).toUpperCase()){
+    if(Date.now() > new Date(pr.until).getTime()){ $("#promoErr").textContent = "Срок действия промокода закончился."; promo = null; }
+    else { promo = pr; cart.setPromo(pr.code); $("#promoErr").textContent = ""; }
+  } else { promo = null; $("#promoErr").textContent = "Такого промокода нет."; }
+  render();
+}
+
+function totals(){
+  const sub = items.reduce((s, x) => s + x.p.price * x.qty, 0);
+  const disc = promo ? Math.round(sub * promo.percent / 100) : 0;
+  const d = (ST.delivery || []).find(x => x.id === ($("#form").delivery || {}).value) || {};
+  const free = ST.free_from != null && sub - disc >= +ST.free_from;
+  const ship = free ? 0 : (+d.price || 0);
+  return {sub, disc, ship, sum: sub - disc + ship, d, free};
+}
+
+function render(){
+  const t = totals();
+  $("#lines").innerHTML = items.map(x => `<div class="line"><span>${esc(x.p.name)} × ${x.qty}${x.p.stock != null && x.qty > x.p.stock ? `<small style="color:var(--bad)">${x.p.stock ? "в наличии только " + x.p.stock + " шт." : "закончился"}</small>` : ""}</span><span>${fmt(x.p.price * x.qty)}</span></div>`).join("");
+  $("#sub").textContent = fmt(t.sub);
+  $("#discRow").hidden = !t.disc;
+  if(promo){ $("#discLabel").textContent = `Промокод ${promo.code} (−${promo.percent}%)`; $("#disc").textContent = "−" + fmt(t.disc); }
+  $("#ship").textContent = t.ship ? fmt(t.ship) : "бесплатно";
+  $("#total").textContent = fmt(t.sum);
+  document.querySelectorAll("[data-price]").forEach(el => {
+    const d = (ST.delivery || []).find(x => x.id === el.dataset.price) || {};
+    el.textContent = !+d.price || t.free ? "бесплатно" : fmt(d.price);
+  });
+  const needs = t.d.needs_address !== false;
+  $("#addrBox").hidden = !needs;
+  $("#cityBox").hidden = t.d.id !== "kz";
+  const manual = !ST.payment || (ST.payment.mode || "manual") === "manual";
+  $("#submit").textContent = (manual ? "Оформить заказ · " : "Перейти к оплате · ") + fmt(t.sum);
+}
+
+async function submit(e){
+  e.preventDefault();
+  const f = e.target, t = totals(), err = $("#err"), btn = $("#submit");
+  const v = k => f[k].value.trim();
+  let msg = "";
+  if(!v("name")) msg = "Укажите имя.";
+  else if(v("phone").replace(/\D/g, "").length < 10) msg = "Укажите телефон, чтобы мы могли связаться с вами.";
+  else if(v("email") && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v("email"))) msg = "Проверьте email.";
+  else if(t.d.needs_address !== false && t.d.id === "kz" && !v("city")) msg = "Укажите город.";
+  else if(t.d.needs_address !== false && !v("address")) msg = "Укажите адрес доставки.";
+  else if(!f.agree.checked) msg = "Подтвердите согласие с офертой.";
+  err.textContent = msg;
+  if(msg) return;
+
+  btn.disabled = true; const label = btn.textContent; btn.textContent = "Оформляем…";
+  contact.set({name: v("name"), phone: v("phone"), email: v("email"), city: v("city"), address: v("address"), delivery: t.d.id});
+  try{
+    const order = await rpc("create_checkout", {
+      p_name: v("name"), p_phone: v("phone"), p_email: v("email") || null,
+      p_items: items.map(x => ({id: x.p.id, qty: x.qty})), p_promo: promo ? promo.code : null,
+      p_delivery: t.d.id, p_city: t.d.id === "kz" ? v("city") : (t.d.id === "almaty" ? "Алматы" : null),
+      p_address: t.d.needs_address !== false ? v("address") : null, p_comment: v("comment") || null
+    });
+    cart.clear();
+    let url = null;
+    try{ url = await startPayment(order, ST); }catch(pe){ console.warn(pe); }
+    location.href = url || `order.html?id=${order.id}&t=${order.token}&new=1`;
+  }catch(ex){
+    err.textContent = ex.message;
+    btn.disabled = false; btn.textContent = label;
+  }
+}
+</script>
+</body>
+</html>

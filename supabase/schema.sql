@@ -63,6 +63,22 @@ create table if not exists public.orders (
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
+-- оплата на сайте и доставка (добавлено позже; для существующей базы колонки добавятся сами)
+alter table public.orders add column if not exists email            text;
+alter table public.orders add column if not exists delivery_method  text;
+alter table public.orders add column if not exists delivery_name    text;
+alter table public.orders add column if not exists delivery_cost    int not null default 0;
+alter table public.orders add column if not exists city             text;
+alter table public.orders add column if not exists address          text;
+alter table public.orders add column if not exists comment          text;
+alter table public.orders add column if not exists paid_at          timestamptz;
+alter table public.orders add column if not exists payment_provider text;
+alter table public.orders add column if not exists payment_id       text;
+alter table public.orders add column if not exists public_token     uuid not null default gen_random_uuid();
+-- статусы: pending — ждёт оплаты; paid — оплачен, к отгрузке; new/contacted — для заявок на предзаказ
+alter table public.orders drop constraint if exists orders_status_check;
+alter table public.orders add constraint orders_status_check
+  check (status in ('pending','new','contacted','paid','shipped','done','canceled'));
 create index if not exists orders_created_idx  on public.orders (created_at desc);
 create index if not exists orders_status_idx   on public.orders (status);
 create index if not exists orders_customer_idx on public.orders (customer_id);
@@ -176,8 +192,10 @@ begin
   on conflict (phone) do update set name = case when customers.name = '' then excluded.name else customers.name end
   returning id into v_customer;
 
-  insert into orders (kind, customer_id, name, phone, items, request, subtotal, discount, total, promo_code)
-  values (v_kind, v_customer, v_name, v_phone, v_items, v_request, v_sub, v_disc, v_sub - v_disc, v_code)
+  -- заказ с товарами без оформления (старая версия страницы) ждёт оплаты; заявка на предзаказ — новая
+  insert into orders (kind, status, customer_id, name, phone, items, request, subtotal, discount, total, promo_code)
+  values (v_kind, case when v_kind = 'order' then 'pending' else 'new' end,
+          v_customer, v_name, v_phone, v_items, v_request, v_sub, v_disc, v_sub - v_disc, v_code)
   returning id into v_id;
 
   return jsonb_build_object('id', v_id, 'subtotal', v_sub, 'discount', v_disc, 'total', v_sub - v_disc);
@@ -185,6 +203,190 @@ end $$;
 
 revoke all on function public.place_order(text,text,jsonb,text,text) from public;
 grant execute on function public.place_order(text,text,jsonb,text,text) to anon, authenticated;
+
+-- ───────────── оформление заказа с оплатой ─────────────
+-- Заказ создаётся со статусом pending («ждёт оплаты») и в работу не попадает.
+-- В «оплачен — к отгрузке» его переводит только confirm_payment: уведомление платёжной
+-- системы (через серверную функцию с service_role) или менеджер вручную из админки.
+
+alter table public.customers add column if not exists email text;
+
+-- неоплаченные заказы старше 24 часов отменяются
+create or replace function public.expire_pending() returns int
+language sql security definer set search_path = public as $$
+  with x as (
+    update orders set status = 'canceled',
+      manager_note = btrim(manager_note || ' Автоотмена: не оплачен за 24 часа.')
+    where status = 'pending' and created_at < now() - interval '24 hours'
+    returning 1)
+  select count(*)::int from x;
+$$;
+revoke all on function public.expire_pending() from public;
+grant execute on function public.expire_pending() to anon, authenticated;
+
+create or replace function public.create_checkout(
+  p_name     text,
+  p_phone    text,
+  p_email    text,
+  p_items    jsonb,          -- [{"id":"aula-f75","qty":1}]
+  p_promo    text,
+  p_delivery text,           -- id способа доставки из настроек: pickup / almaty / kz
+  p_city     text,
+  p_address  text,
+  p_comment  text
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_phone    text := regexp_replace(coalesce(p_phone,''), '\D', '', 'g');
+  v_name     text := left(btrim(coalesce(p_name,'')), 100);
+  v_email    text := nullif(lower(left(btrim(coalesce(p_email,'')), 200)), '');
+  v_city     text := nullif(left(btrim(coalesce(p_city,'')), 100), '');
+  v_address  text := nullif(left(btrim(coalesce(p_address,'')), 300), '');
+  v_comment  text := nullif(left(btrim(coalesce(p_comment,'')), 1000), '');
+  v_settings jsonb;
+  v_promo    jsonb;
+  v_del      jsonb;
+  v_items    jsonb := '[]'::jsonb;
+  v_sub      int := 0;
+  v_disc     int := 0;
+  v_ship     int := 0;
+  v_code     text := null;
+  v_customer uuid;
+  v_id       bigint;
+  v_token    uuid;
+  r          record;
+begin
+  perform expire_pending();
+
+  if length(v_phone) = 10 then v_phone := '7' || v_phone; end if;
+  if length(v_phone) = 11 and left(v_phone,1) = '8' then v_phone := '7' || substr(v_phone,2); end if;
+  if v_name = '' or length(v_phone) < 10 or length(v_phone) > 15 then
+    raise exception 'Укажите имя и телефон';
+  end if;
+  if v_email is not null and v_email !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' then
+    raise exception 'Проверьте email';
+  end if;
+  if (select count(*) from orders where phone = v_phone and created_at > now() - interval '10 minutes') >= 5 then
+    raise exception 'Слишком много заказов подряд, попробуйте через 10 минут';
+  end if;
+  if jsonb_typeof(p_items) is distinct from 'array' or jsonb_array_length(p_items) = 0 then
+    raise exception 'Корзина пуста';
+  end if;
+
+  for r in
+    select p.id, p.name, p.price, p.stock, least(greatest(coalesce((x->>'qty')::int,1),1),99) as qty
+    from jsonb_array_elements(p_items) x
+    join products p on p.id = x->>'id' and p.active
+  loop
+    if r.stock is not null and r.qty > r.stock then
+      if r.stock = 0 then raise exception 'Товар «%» закончился', r.name;
+      else raise exception 'Товара «%» осталось только % шт.', r.name, r.stock; end if;
+    end if;
+    v_items := v_items || jsonb_build_object('id',r.id,'name',r.name,'price',r.price,'qty',r.qty);
+    v_sub := v_sub + r.price * r.qty;
+  end loop;
+  if jsonb_array_length(v_items) = 0 then raise exception 'Товары не найдены, обновите страницу'; end if;
+
+  select data into v_settings from site_settings where id = 1;
+  v_promo := v_settings->'promo';
+  if p_promo is not null and v_promo is not null
+     and upper(btrim(p_promo)) = upper(v_promo->>'code')
+     and now() <= (v_promo->>'until')::timestamptz then
+    v_code := v_promo->>'code';
+    v_disc := round(v_sub * (v_promo->>'percent')::numeric / 100);
+  end if;
+
+  select d into v_del from jsonb_array_elements(coalesce(v_settings->'delivery','[]'::jsonb)) d
+  where d->>'id' = p_delivery and coalesce((d->>'enabled')::boolean, true);
+  if v_del is null then raise exception 'Выберите способ доставки'; end if;
+  if coalesce((v_del->>'needs_address')::boolean, true) and v_address is null then
+    raise exception 'Укажите адрес доставки';
+  end if;
+  v_ship := coalesce((v_del->>'price')::int, 0);
+  if (v_settings->>'free_from') is not null and v_sub - v_disc >= (v_settings->>'free_from')::int then
+    v_ship := 0;
+  end if;
+
+  insert into customers (phone, name, email) values (v_phone, v_name, v_email)
+  on conflict (phone) do update set
+    name  = case when customers.name = '' then excluded.name else customers.name end,
+    email = coalesce(excluded.email, customers.email)
+  returning id into v_customer;
+
+  insert into orders (kind, status, customer_id, name, phone, email, items, subtotal, discount, promo_code,
+                      delivery_method, delivery_name, delivery_cost, city, address, comment, total)
+  values ('order', 'pending', v_customer, v_name, v_phone, v_email, v_items, v_sub, v_disc, v_code,
+          v_del->>'id', v_del->>'name', v_ship, v_city, v_address, v_comment, v_sub - v_disc + v_ship)
+  returning id, public_token into v_id, v_token;
+
+  return jsonb_build_object('id', v_id, 'token', v_token, 'items', v_items, 'subtotal', v_sub,
+    'discount', v_disc, 'delivery_cost', v_ship, 'total', v_sub - v_disc + v_ship);
+end $$;
+revoke all on function public.create_checkout(text,text,text,jsonb,text,text,text,text,text) from public;
+grant execute on function public.create_checkout(text,text,text,jsonb,text,text,text,text,text) to anon, authenticated;
+
+-- подтверждение оплаты: менеджер (вручную) или серверная функция платёжной системы (service_role)
+create or replace function public.confirm_payment(
+  p_id         bigint,
+  p_provider   text default 'manual',
+  p_payment_id text default null,
+  p_amount     int  default null      -- сумма из уведомления банка; если передана, должна совпасть
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_role text := coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb->>'role', '');
+  o orders%rowtype;
+begin
+  if not (is_staff() or v_role = 'service_role') then raise exception 'Нет доступа'; end if;
+  select * into o from orders where id = p_id for update;
+  if not found then raise exception 'Заказ % не найден', p_id; end if;
+  if o.kind <> 'order' then raise exception 'Заявку на предзаказ нельзя отметить оплаченной'; end if;
+  if o.status in ('paid','shipped','done') then
+    return jsonb_build_object('id', o.id, 'status', o.status, 'already_paid', true);
+  end if;
+  if p_amount is not null and p_amount <> o.total then
+    raise exception 'Сумма оплаты % не совпадает с суммой заказа %', p_amount, o.total;
+  end if;
+
+  update orders set status = 'paid', paid_at = now(),
+    payment_provider = coalesce(p_provider, 'manual'), payment_id = p_payment_id
+  where id = p_id;
+
+  update products p set stock = greatest(p.stock - (x->>'qty')::int, 0)
+  from jsonb_array_elements(o.items) x
+  where p.id = x->>'id' and p.stock is not null;
+
+  return jsonb_build_object('id', o.id, 'status', 'paid');
+end $$;
+revoke all on function public.confirm_payment(bigint,text,text,int) from public;
+grant execute on function public.confirm_payment(bigint,text,text,int) to authenticated, service_role;
+
+-- статус заказа для страницы «Ваш заказ»: только по номеру и секретному токену из ссылки
+create or replace function public.order_status(p_id bigint, p_token uuid) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object('id', id, 'status', status, 'items', items, 'subtotal', subtotal,
+    'discount', discount, 'promo_code', promo_code, 'delivery_name', delivery_name,
+    'delivery_cost', delivery_cost, 'total', total, 'created_at', created_at, 'paid_at', paid_at)
+  from orders where id = p_id and public_token = p_token and kind = 'order';
+$$;
+revoke all on function public.order_status(bigint,uuid) from public;
+grant execute on function public.order_status(bigint,uuid) to anon, authenticated;
+
+-- способы доставки и оплаты по умолчанию (если их ещё нет в настройках)
+create or replace function public.ensure_settings_defaults() returns void
+language sql security definer set search_path = public as $$
+update site_settings set data = data || jsonb_build_object('delivery', '[
+  {"id":"pickup","name":"Самовывоз","note":"ул. Макатаева, 117А, 3 этаж, офис 305","price":0,"needs_address":false,"enabled":true},
+  {"id":"almaty","name":"Курьер по Алматы","note":"Яндекс Доставка или inDrive, в день заказа или на следующий","price":2000,"needs_address":true,"enabled":true},
+  {"id":"kz","name":"Доставка по Казахстану","note":"Казпочта или CDEK, 2–7 дней, трек-номер после отправки","price":3500,"needs_address":true,"enabled":true}
+]'::jsonb) where id = 1 and not (data ? 'delivery');
+update site_settings set data = data || jsonb_build_object('payment', jsonb_build_object(
+  'mode', 'manual',
+  'manual_text', 'Заказ принят. Менеджер напишет вам в WhatsApp в течение 30 минут (с 10:00 до 21:00) и пришлёт счёт Kaspi для оплаты. После оплаты заказ уйдёт в сборку.'
+)) where id = 1 and not (data ? 'payment');
+$$;
+revoke all on function public.ensure_settings_defaults() from public, anon, authenticated;
+select public.ensure_settings_defaults();
 
 -- ───────────── добавление сотрудника (только для админа) ─────────────
 -- Сначала создайте пользователя: Authentication → Users → Add user.
@@ -231,14 +433,20 @@ begin
   select value into v_chat  from private.secrets where key = 'telegram_chat_id';
   if v_token is null or v_chat is null then return new; end if;
 
-  if new.kind = 'preorder' then
-    v_text := format(E'🆕 Предзаказ №%s\n%s, +%s\n\n%s', new.id, new.name, new.phone, new.request);
-  else
+  -- пишем только о заявках на предзаказ и об оплаченных заказах; неоплаченные корзины не беспокоят
+  if tg_op = 'INSERT' and new.kind = 'preorder' then
+    v_text := format(E'🆕 Заявка на предзаказ №%s\n%s, +%s\n\n%s', new.id, new.name, new.phone, new.request);
+  elsif new.kind = 'order' and new.status = 'paid' and (tg_op = 'INSERT' or old.status is distinct from 'paid') then
     select string_agg(format('• %s × %s', x->>'name', x->>'qty'), E'\n') into v_lines
     from jsonb_array_elements(new.items) x;
-    v_text := format(E'🛒 Заказ №%s\n%s, +%s\n\n%s\n\nИтого: %s ₸%s',
+    v_text := format(E'✅ Оплачен заказ №%s — к отгрузке\n%s, +%s\n\n%s\n\nИтого: %s ₸%s\nДоставка: %s%s%s',
       new.id, new.name, new.phone, v_lines, replace(to_char(new.total, 'FM999,999,999'), ',', ' '),
-      case when new.promo_code is not null then format(' (промокод %s)', new.promo_code) else '' end);
+      case when new.promo_code is not null then format(' (промокод %s)', new.promo_code) else '' end,
+      coalesce(new.delivery_name, '—'),
+      case when new.city is not null then ', ' || new.city else '' end,
+      case when new.address is not null then ', ' || new.address else '' end);
+  else
+    return new;
   end if;
 
   perform net.http_post(
@@ -252,7 +460,7 @@ exception when others then
 end $$;
 
 drop trigger if exists orders_notify on public.orders;
-create trigger orders_notify after insert on public.orders
+create trigger orders_notify after insert or update of status on public.orders
   for each row execute function public.notify_telegram();
 
 -- ───────────── права доступа (RLS) ─────────────

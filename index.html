@@ -273,6 +273,7 @@ footer{background:var(--night);color:#FFF4EA;padding:44px 0 34px;margin-top:40px
 .tilt.on .pic img{--ps:1.07}
 .ln .th img{width:90%;height:90%;object-fit:contain;border-radius:6px}
 .price s.old{font-size:.72em;color:var(--muted);font-weight:500}
+.add:disabled,.btn:disabled{opacity:.5;cursor:default;box-shadow:none}
 #fx{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:96}
 </style>
 </head>
@@ -414,7 +415,7 @@ footer{background:var(--night);color:#FFF4EA;padding:44px 0 34px;margin-top:40px
           </div>
           <label style="margin-top:12px">Что привезти<textarea class="field" name="item" placeholder="Например: WLMOUSE Beast X Mini, белая"></textarea></label>
           <p class="err" id="preErr"></p>
-          <button class="btn btn-pink" type="submit">Отправить в WhatsApp</button>
+          <button class="btn btn-pink" type="submit">Отправить заявку</button>
         </form>
       </div>
     </div>
@@ -433,7 +434,7 @@ footer{background:var(--night);color:#FFF4EA;padding:44px 0 34px;margin-top:40px
         <li><a href="https://www.instagram.com/almatydevice/" target="_blank" rel="noopener">Instagram</a></li>
         <li><a href="https://www.tiktok.com/@almatydevice" target="_blank" rel="noopener">TikTok</a></li></ul></div>
       <div><h4>Покупателям</h4><ul>
-        <li><a href="#catalog">Каталог</a></li><li><a href="#delivery">Доставка и возврат</a></li><li><a href="#preorder">Предзаказ</a></li></ul></div>
+        <li><a href="#catalog">Каталог</a></li><li><a href="#delivery">Доставка и возврат</a></li><li><a href="#preorder">Предзаказ</a></li><li><a href="offer.html">Публичная оферта</a></li><li><a href="privacy.html">Конфиденциальность</a></li></ul></div>
     </div>
     <p class="legal">© Almaty Device, 2026. Grand Theft Auto VI — товарный знак Take-Two Interactive Software. Almaty Device не связан с Rockstar Games и Take-Two Interactive.</p>
   </div>
@@ -451,12 +452,8 @@ footer{background:var(--night);color:#FFF4EA;padding:44px 0 34px;margin-top:40px
     <div class="rowx"><span>Товары</span><span id="sub">0 ₸</span></div>
     <div class="rowx disc" id="discRow" hidden><span id="discLabel"></span><span id="disc"></span></div>
     <div class="rowx tot"><span>Итого</span><span class="price" id="cartTotal">0 ₸</span></div>
-    <div class="two">
-      <input class="field" id="cName" placeholder="Ваше имя" autocomplete="name" aria-label="Ваше имя">
-      <input class="field" id="cPhone" type="tel" placeholder="Телефон" autocomplete="tel" aria-label="Телефон">
-    </div>
     <p class="err" id="cartErr" style="margin:0"></p>
-    <button class="btn btn-pink" id="checkout">Оформить заказ в WhatsApp</button>
+    <a class="btn btn-pink" id="checkout" href="checkout.html">Оформить заказ</a>
   </div>
 </aside>
 <canvas id="fx" aria-hidden="true"></canvas>
@@ -534,8 +531,7 @@ async function saveOrder(name, phone, items, promo, request){
   try{ return await api("rpc/place_order", {method:"POST", timeout:8000, body: JSON.stringify({p_name:name, p_phone:phone, p_items:items, p_promo:promo, p_request:request})}); }
   catch(e){ console.warn("Заказ не сохранён в базе:", e.message); return null; }
 }
-/* WhatsApp: вкладку открываем сразу по клику (до запроса к базе), иначе браузер её заблокирует */
-const blankTab = () => DB ? window.open("about:blank", "_blank") : null;
+/* WhatsApp — запасной путь, если база недоступна */
 function goWA(w, msg){
   const url = `https://wa.me/${WA}?text=${encodeURIComponent(msg)}`;
   if(w && !w.closed){ try{ w.opener = null; }catch(e){} w.location.replace(url); }
@@ -613,7 +609,7 @@ function renderPicks(){
     <article class="pick tilt" style="--i:${i}"><div class="pic">${pic(p)}</div><div class="b">
       <span class="role">${esc(x.role)}</span><h3>${esc(p.name)}</h3><p>${esc(p.spec)}</p>
       <div class="prices">${promoLive()?`<b>${fmt(sale(p.price))}</b><s>${fmt(p.price)}</s>`:`<b>${fmt(p.price)}</b>`}</div>
-      <button class="btn btn-hot" data-buy="${p.id}">${cart[p.id]?"В корзине":"В корзину"}</button></div></article>`; }).join("") ;
+      <button class="btn btn-hot" data-buy="${esc(p.id)}" ${soldOut(p.id)&&!cart[p.id]?"disabled":""}>${buyLabel(p.id)}</button></div></article>`; }).join("") ;
   $("#picks").querySelectorAll("[data-buy]").forEach(b => b.onclick = () => cart[b.dataset.buy] ? openCart() : add(b.dataset.buy, b));
 }
 
@@ -636,7 +632,7 @@ function renderGrid(){
   $("#grid").innerHTML = list.length ? list.map((p,i) => `
     <article class="card tilt" style="--i:${Math.min(i,12)}"><div class="pic">${p.tag?`<span class="tag">${esc(p.tag)}</span>`:""}${pic(p)}</div>
       <div class="b"><span class="brand">${esc(p.brand)}</span><h3>${esc(p.name)}</h3><p class="spec">${esc(p.spec)}</p>
-      <div class="buy"><span class="price">${fmt(p.price)}${p.old_price>p.price?` <s class="old">${fmt(p.old_price)}</s>`:""}</span><button class="add ${cart[p.id]?'in':''}" data-id="${esc(p.id)}">${cart[p.id]?'В корзине':'В корзину'}</button></div></div></article>`).join("")
+      <div class="buy"><span class="price">${fmt(p.price)}${p.old_price>p.price?` <s class="old">${fmt(p.old_price)}</s>`:""}</span><button class="add ${cart[p.id]?'in':''}" data-id="${esc(p.id)}" ${soldOut(p.id)&&!cart[p.id]?"disabled":""}>${buyLabel(p.id)}</button></div></div></article>`).join("")
     : `<div class="empty">Ничего не нашлось. Сбросьте фильтры или <a href="#preorder">оформите предзаказ</a> — привезём нужную модель.</div>`;
   $("#grid").querySelectorAll(".add").forEach(b => b.onclick = () => cart[b.dataset.id] ? openCart() : add(b.dataset.id, b));
 }
@@ -647,8 +643,14 @@ try{ cart = JSON.parse(localStorage.getItem("ad-cart")||"{}") || {}; applied = l
 Object.keys(cart).forEach(id => { if(!P(id)) delete cart[id]; });
 const save = () => { try{ localStorage.setItem("ad-cart", JSON.stringify(cart)); }catch(e){} };
 const savePromo = () => { try{ applied ? localStorage.setItem("ad-promo", PROMO.code) : localStorage.removeItem("ad-promo"); }catch(e){} };
-function add(id, src){ cart[id]=(cart[id]||0)+1; save(); toast("Добавлено в корзину"); renderAll(); fly(src); }
-function qty(id,d){ cart[id]=(cart[id]||0)+d; if(cart[id]<=0) delete cart[id]; save(); renderAll(); }
+const soldOut = id => P(id) && P(id).stock === 0;
+const buyLabel = id => cart[id] ? "В корзине" : soldOut(id) ? "Нет в наличии" : "В корзину";
+function add(id, src){ if(soldOut(id)) return; cart[id]=(cart[id]||0)+1; save(); toast("Добавлено в корзину"); renderAll(); fly(src); }
+function qty(id,d){
+  const st = P(id).stock;
+  if(d > 0 && st != null && (cart[id]||0) >= st){ toast(`В наличии только ${st} шт.`); return; }
+  cart[id]=(cart[id]||0)+d; if(cart[id]<=0) delete cart[id]; save(); renderAll();
+}
 function totals(){
   let sub=0,n=0; for(const id in cart){ sub+=P(id).price*cart[id]; n+=cart[id]; }
   const disc = applied && promoLive() ? Math.round(sub*PROMO.percent/100) : 0;
@@ -685,28 +687,26 @@ $("#cartBtn").onclick = openCart; $("#closeCart").onclick = closeCart; $("#scrim
 document.addEventListener("keydown", e => { if(e.key === "Escape") closeCart(); });
 
 const phoneOk = v => v.replace(/\D/g,"").length >= 10;
-$("#checkout").onclick = async () => {
-  const name=$("#cName").value.trim(), phone=$("#cPhone").value.trim();
-  if(!name || !phoneOk(phone)){ $("#cartErr").textContent = "Укажите имя и телефон, чтобы менеджер связался с вами."; return; }
+/* оформление идёт на отдельной странице checkout.html; без базы — запасной путь через WhatsApp */
+$("#checkout").onclick = e => {
+  const out = Object.keys(cart).filter(id => P(id).stock != null && cart[id] > P(id).stock);
+  if(out.length){ e.preventDefault(); $("#cartErr").textContent = `«${P(out[0]).name}»: ${P(out[0]).stock ? "в наличии только " + P(out[0]).stock + " шт." : "нет в наличии"}. Уменьшите количество.`; return; }
   $("#cartErr").textContent = "";
-  const btn = $("#checkout"); if(btn.disabled) return; btn.disabled = true;
-  const w = blankTab(), t = totals();
-  const res = await saveOrder(name, phone, Object.keys(cart).map(id => ({id, qty:cart[id]})), t.disc ? PROMO.code : null, null);
-  const lines = Object.keys(cart).map(id => `• ${P(id).name} × ${cart[id]} — ${fmt(P(id).price*cart[id])}`);
-  const promo = t.disc ? `\nПромокод ${PROMO.code}: −${fmt(t.disc)}` : "";
-  const no = res && res.id ? ` №${res.id}` : "";
-  goWA(w, `Здравствуйте! Хочу оформить заказ${no}:\n${lines.join("\n")}${promo}\nИтого: ${fmt(res && res.id ? res.total : t.sum)}\n\nИмя: ${name}\nТелефон: ${phone}`);
-  if(res && res.id){ cart = {}; save(); applied = false; savePromo(); renderAll(); renderGrid(); renderPicks(); closeCart(); toast(`Заказ №${res.id} принят. Менеджер свяжется с вами`); }
-  btn.disabled = false;
+  if(DB) return;
+  e.preventDefault();
+  const t = totals(), lines = Object.keys(cart).map(id => `• ${P(id).name} × ${cart[id]} — ${fmt(P(id).price*cart[id])}`);
+  goWA(null, `Здравствуйте! Хочу оформить заказ:\n${lines.join("\n")}${t.disc ? `\nПромокод ${PROMO.code}: −${fmt(t.disc)}` : ""}\nИтого: ${fmt(t.sum)}`);
 };
 $("#preForm").onsubmit = async e => {
   e.preventDefault();
   const f=e.target, name=f.name.value.trim(), phone=f.phone.value.trim(), item=f.item.value.trim();
   if(!name || !phoneOk(phone) || !item){ $("#preErr").textContent = "Заполните имя, телефон и что нужно привезти."; return; }
   $("#preErr").textContent = "";
-  const w = blankTab(), res = await saveOrder(name, phone, [], null, item);
-  goWA(w, `Здравствуйте! Хочу оформить предзаказ${res && res.id ? ` №${res.id}` : ""}.\nТовар: ${item}\nИмя: ${name}\nТелефон: ${phone}`);
-  if(res && res.id){ f.reset(); toast(`Предзаказ №${res.id} принят`); }
+  const btn = f.querySelector("button"); btn.disabled = true;
+  const res = await saveOrder(name, phone, [], null, item);
+  btn.disabled = false;
+  if(res && res.id){ f.reset(); toast(`Заявка №${res.id} принята. Менеджер свяжется с вами`); return; }
+  goWA(null, `Здравствуйте! Хочу оформить предзаказ.\nТовар: ${item}\nИмя: ${name}\nТелефон: ${phone}`);
 };
 let tt; function toast(t){ const el=$("#toast"); el.textContent=t; el.classList.add("show"); clearTimeout(tt); tt=setTimeout(()=>el.classList.remove("show"),2200); }
 
@@ -726,8 +726,8 @@ function tween(el, to){
   el._raf = requestAnimationFrame(step);
 }
 function syncButtons(){
-  document.querySelectorAll("#grid .add").forEach(b => { const on = !!cart[b.dataset.id]; b.classList.toggle("in", on); b.textContent = on ? "В корзине" : "В корзину"; });
-  document.querySelectorAll("#picks [data-buy]").forEach(b => { b.textContent = cart[b.dataset.buy] ? "В корзине" : "В корзину"; });
+  document.querySelectorAll("#grid .add").forEach(b => { const id = b.dataset.id; b.classList.toggle("in", !!cart[id]); b.textContent = buyLabel(id); b.disabled = soldOut(id) && !cart[id]; });
+  document.querySelectorAll("#picks [data-buy]").forEach(b => { const id = b.dataset.buy; b.textContent = buyLabel(id); b.disabled = soldOut(id) && !cart[id]; });
 }
 
 /* уровень сетапа: звезда за каждую категорию в корзине */

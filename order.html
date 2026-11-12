@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ваш заказ — Almaty Device</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shop.css">
+<style>
+.box{max-width:640px;margin:32px auto 0;display:grid;gap:16px}
+.status{display:grid;gap:10px}
+.badge{justify-self:start;display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:6px 14px;font-weight:700;font-size:14px;background:var(--soft)}
+.badge i{width:9px;height:9px;border-radius:50%;background:currentColor}
+.badge.pending{color:var(--accent)}
+.badge.paid,.badge.done{color:var(--ok)}
+.badge.shipped{color:#3B6FD8}
+.badge.canceled{color:var(--muted)}
+.next{font-size:16px;background:var(--soft);border-radius:12px;padding:14px 16px;margin:0}
+.track{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:4px}
+.track div{height:6px;border-radius:3px;background:var(--line)}
+.track div.on{background:linear-gradient(90deg,var(--pink),var(--orange))}
+.tl{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:12px;color:var(--muted);font-weight:600}
+.acts{display:flex;flex-wrap:wrap;gap:10px}
+.acts .btn{flex:1 1 200px}
+</style>
+</head>
+<body>
+<header><div class="wrap hbar"><a class="logo" href="./">Almaty <i>Device</i></a><a class="back" href="./#catalog">← В магазин</a></div></header>
+
+<main class="wrap">
+  <div class="box" id="box"><p class="muted">Загружаем заказ…</p></div>
+</main>
+
+<footer><div class="wrap"><span>© Almaty Device</span><span><a href="offer.html">Оферта</a> · <a href="privacy.html">Конфиденциальность</a></span></div></footer>
+
+<script src="config.js"></script>
+<script type="module">
+import { $, fmt, esc, rpc, settings, startPayment, waLink } from "./shop.js";
+
+const q = new URLSearchParams(location.search), id = +q.get("id"), token = q.get("t");
+const STEPS = ["pending", "paid", "shipped", "done"];
+const TITLE = {
+  pending: "Заказ принят, ждёт оплаты",
+  paid: "Оплачен — собираем заказ",
+  shipped: "Заказ отправлен",
+  done: "Заказ доставлен",
+  canceled: "Заказ отменён"
+};
+const BADGE = {pending:"Ждёт оплаты", paid:"Оплачен", shipped:"В пути", done:"Доставлен", canceled:"Отменён"};
+let ST = {}, timer;
+
+async function load(){
+  if(!id || !token) return fail("Ссылка на заказ неполная. Откройте её из сообщения или напишите нам.");
+  let o;
+  try{ [o, ST] = await Promise.all([rpc("order_status", {p_id: id, p_token: token}), Object.keys(ST).length ? ST : settings()]); }
+  catch(e){ return fail("Не удалось загрузить заказ: " + e.message); }
+  if(!o) return fail("Заказ не найден. Проверьте ссылку или напишите нам.");
+  render(o);
+  clearTimeout(timer);
+  if(o.status === "pending") timer = setTimeout(load, 15000);   // ждём подтверждения оплаты
+}
+
+function fail(t){
+  $("#box").innerHTML = `<div class="card status"><h1>Заказ</h1><p>${esc(t)}</p><a class="btn btn-ghost" href="${waLink(ST.wa, "Здравствуйте! Вопрос по заказу" + (id ? " №" + id : ""))}" target="_blank" rel="noopener">Написать в WhatsApp</a></div>`;
+}
+
+function render(o){
+  const manual = !ST.payment || (ST.payment.mode || "manual") === "manual";
+  const step = STEPS.indexOf(o.status);
+  let next = "";
+  if(o.status === "pending") next = manual ? (ST.payment && ST.payment.manual_text) || "Менеджер свяжется с вами и пришлёт счёт для оплаты." : "Оплата ещё не поступила. Если вы уже оплатили, статус обновится через минуту.";
+  if(o.status === "paid") next = "Спасибо за оплату! Мы соберём заказ и сообщим, когда отправим его.";
+  if(o.status === "shipped") next = "Заказ передан в доставку. Трек-номер или время доставки менеджер пришлёт в WhatsApp.";
+  if(o.status === "canceled") next = "Заказ не был оплачен вовремя и отменён. Если товар ещё нужен, оформите заказ заново или напишите нам.";
+  const items = o.items || [];
+  $("#box").innerHTML = `
+    <div class="card status">
+      <span class="badge ${o.status}"><i></i>${BADGE[o.status] || o.status}</span>
+      <h1>${TITLE[o.status] || "Заказ"} <span class="muted">№${o.id}</span></h1>
+      ${step >= 0 ? `<div class="track">${STEPS.map((s, i) => `<div class="${i <= step ? "on" : ""}"></div>`).join("")}</div>
+      <div class="tl"><span>Принят</span><span>Оплачен</span><span>Отправлен</span><span>Доставлен</span></div>` : ""}
+      ${next ? `<p class="next">${esc(next)}</p>` : ""}
+      <div class="acts">
+        ${o.status === "pending" && !manual ? `<button class="btn btn-pink" id="pay">Оплатить ${fmt(o.total)}</button>` : ""}
+        <a class="btn btn-ghost" href="${waLink(ST.wa, `Здравствуйте! Вопрос по заказу №${o.id}`)}" target="_blank" rel="noopener">Написать в WhatsApp</a>
+      </div>
+      <p class="err" id="err"></p>
+    </div>
+    <div class="card">
+      <h2 style="margin-bottom:14px">Состав заказа</h2>
+      <div class="lines">
+        ${items.map(i => `<div class="line"><span>${esc(i.name)} × ${i.qty}</span><span>${fmt(i.price * i.qty)}</span></div>`).join("")}
+        <div class="rowx" style="margin-top:6px"><span>Товары</span><span>${fmt(o.subtotal)}</span></div>
+        ${o.discount ? `<div class="rowx disc"><span>Промокод ${esc(o.promo_code)}</span><span>−${fmt(o.discount)}</span></div>` : ""}
+        <div class="rowx"><span>${esc(o.delivery_name || "Доставка")}</span><span>${o.delivery_cost ? fmt(o.delivery_cost) : "бесплатно"}</span></div>
+        <div class="rowx tot"><span>Итого</span><span class="price">${fmt(o.total)}</span></div>
+      </div>
+      <p class="muted" style="font-size:14px;margin:14px 0 0">Сохраните эту страницу: по ссылке всегда можно проверить статус заказа.</p>
+    </div>`;
+  const pay = $("#pay");
+  if(pay) pay.onclick = async () => {
+    pay.disabled = true;
+    try{ const url = await startPayment({id: o.id, token}, ST); if(url) location.href = url; }
+    catch(e){ $("#err").textContent = e.message; pay.disabled = false; }
+  };
+}
+
+load();
+</script>
+</body>
+</html>
