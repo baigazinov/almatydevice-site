@@ -268,6 +268,11 @@ footer{background:var(--night);color:#FFF4EA;padding:44px 0 34px;margin-top:40px
 .panel.hot{background-size:220% 220%;animation:pan 9s ease-in-out infinite alternate}
 @keyframes pan{from{background-position:0 50%}to{background-position:100% 50%}}
 .fly{position:fixed;z-index:95;pointer-events:none;margin:0}
+.pic img{width:100%;height:100%;object-fit:contain;display:block}
+.pick .pic img,.card .pic img{max-height:240px;transform:translate(var(--px,0px),var(--py,0px)) scale(var(--ps,1));transition:transform .3s ease-out}
+.tilt.on .pic img{--ps:1.07}
+.ln .th img{width:90%;height:90%;object-fit:contain;border-radius:6px}
+.price s.old{font-size:.72em;color:var(--muted);font-weight:500}
 #fx{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:96}
 </style>
 </head>
@@ -319,7 +324,7 @@ footer{background:var(--night);color:#FFF4EA;padding:44px 0 34px;margin-top:40px
       </g>
     </svg>
     <div class="wrap in">
-      <span class="kicker" id="kicker">GTA VI выходит 19 ноября</span>
+      <span class="kicker" id="kicker">GTA VI выходит <span class="rdate">19 ноября</span></span>
       <h1 id="heroTitle"><span>Шестая близко.</span><span>Сетап готов?</span></h1>
       <p class="sub" id="heroSub">Наушники, клавиатуры, мыши и коврики — чтобы встретить главный релиз года во всеоружии.</p>
       <div class="count" id="count" role="timer" aria-label="До релиза осталось">
@@ -347,7 +352,7 @@ footer{background:var(--night);color:#FFF4EA;padding:44px 0 34px;margin-top:40px
   <section class="block" id="setup">
     <div class="wrap">
       <div class="head">
-        <div><h2>Сетап к релизу</h2><p class="lead">Четыре вещи, которые стоит обновить до 19 ноября. Цена со скидкой действует по промокоду.</p></div>
+        <div><h2>Сетап к релизу</h2><p class="lead">Четыре вещи, которые стоит обновить до <span class="rdate">19 ноября</span>. Цена со скидкой действует по промокоду.</p></div>
         <div class="level" id="levelMain"><span class="lab">Уровень сетапа</span><div class="starsrow" role="img"></div><small></small></div>
       </div>
       <div class="picks" id="picks"></div>
@@ -390,7 +395,7 @@ footer{background:var(--night);color:#FFF4EA;padding:44px 0 34px;margin-top:40px
       <div class="head"><div><h2>Доставка и возврат</h2><p class="lead">Отправляем по Казахстану и за границу. После отправки присылаем трек-номер.</p></div></div>
       <dl class="dl">
         <div><dt>По Алматы</dt><dd>Яндекс Доставка или inDrive. Менеджер согласует время после заказа.</dd></div>
-        <div><dt>По Казахстану</dt><dd>Казпочта, CDEK, inDrive. От 100 000 ₸ — бесплатно.</dd></div>
+        <div><dt>По Казахстану</dt><dd>Казпочта, CDEK, inDrive. От <span class="ffrom">100 000 ₸</span> — бесплатно.</dd></div>
         <div><dt>Международная</dt><dd>CDEK и Казпочта. Стоимость рассчитываем под страну.</dd></div>
         <div><dt>Самовывоз</dt><dd>ул. Макатаева, 117А, 3 этаж, офис 305.</dd></div>
         <div><dt>Возврат и обмен</dt><dd>14 дней с момента получения, если товар не подошёл или пришёл с дефектом.</dd></div>
@@ -457,22 +462,25 @@ footer{background:var(--night);color:#FFF4EA;padding:44px 0 34px;margin-top:40px
 <canvas id="fx" aria-hidden="true"></canvas>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script>
-/* ---------- настройки акции: меняйте здесь ---------- */
-const WA = "77078323500";
-const FREE_FROM = 100000;
-const RELEASE = new Date("2026-11-19T00:00:00+05:00");          // релиз, полночь по Алматы
-const PROMO = { code:"NOV19", percent:10, until:new Date("2026-11-22T23:59:59+05:00"), untilText:"22 ноября" };
-const SETUP = [                                                    // подборка «Сетап к релизу»
+<script src="config.js"></script>
+<script type="module">
+/* ---------- запасные данные: используются, пока не подключена база (config.js) ---------- */
+/* Когда база подключена, товары и настройки редактируются в админке: /admin/              */
+let WA = "77078323500";
+let FREE_FROM = 100000;
+let RELEASE = new Date("2026-11-19T00:00:00+05:00");          // релиз, полночь по Алматы
+let PROMO = { code:"NOV19", percent:10, until:new Date("2026-11-22T23:59:59+05:00"), untilText:"22 ноября" };
+let SETUP = [                                                    // подборка «Сетап к релизу»
   {id:"mchose-h1", role:"Звук"}, {id:"aula-f75", role:"Клавиатура"}, {id:"wl-beastx", role:"Мышь"}, {id:"esptiger-ql", role:"Коврик"}
 ];
+let DEMO_NOTE = true;
 
-const CATS = [
+let CATS = [
   {id:"audio", name:"Наушники"}, {id:"keyboards", name:"Клавиатуры"}, {id:"mice", name:"Игровые мыши"},
   {id:"pads", name:"Коврики"}, {id:"switches", name:"Свитчи"}, {id:"keycaps", name:"Кейкапы"}
 ];
 // Примеры товаров — замените на реальный ассортимент
-const PRODUCTS = [
+let PRODUCTS = [
   {id:"mchose-h1", name:"MCHOSE H1", brand:"MCHOSE", cat:"audio", price:21990, pop:10, tag:"Для PS5 и Xbox", color:"#C8B6FF", spec:"Беспроводная гарнитура 2.4 ГГц, отстёгивающийся микрофон"},
   {id:"aula-s6", name:"AULA S6", brand:"AULA", cat:"audio", price:14990, pop:7, tag:"Для PS5 и Xbox", color:"#2FE6D0", spec:"Проводная гарнитура, разъём 3.5 мм, объёмный звук"},
   {id:"aula-f75", name:"AULA F75", brand:"AULA", cat:"keyboards", price:32990, pop:9, tag:"Хит", color:"#FF7AB8", spec:"75%, hot-swap, проводной / 2.4 ГГц / Bluetooth"},
@@ -487,6 +495,56 @@ const PRODUCTS = [
   {id:"aula-reaper", name:"AULA Reaper ×35", brand:"AULA", cat:"switches", price:5990, pop:5, color:"#FF3D9A", spec:"Линейные, 38 гс, мягкий глубокий звук"},
   {id:"caps-pbt", name:"PBT кейкапы «Sunset»", brand:"AULA", cat:"keycaps", price:12990, pop:6, color:"#B0247F", spec:"Cherry-профиль, 135 клавиш, кириллица"}
 ];
+
+/* ---------- база данных (Supabase) ---------- */
+const CFG = window.AD_CONFIG || {};
+const DB = CFG.supabaseUrl && CFG.supabaseKey ? CFG.supabaseUrl.replace(/\/+$/,"") : "";
+function api(path, opts = {}){
+  const h = {apikey: CFG.supabaseKey, "Content-Type": "application/json"};
+  if(CFG.supabaseKey.startsWith("eyJ")) h.Authorization = "Bearer " + CFG.supabaseKey;
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), opts.timeout || 6000);
+  return fetch(DB + "/rest/v1/" + path, {...opts, headers: h, signal: ctl.signal})
+    .then(async r => { clearTimeout(t); const j = await r.json().catch(() => null); if(!r.ok) throw new Error((j && j.message) || r.statusText); return j; });
+}
+async function loadRemote(){
+  if(!DB) return;
+  try{
+    const [cats, prods, st] = await Promise.all([
+      api("categories?select=id,name&order=sort"),
+      api("products?select=id,name,brand,cat,price,old_price,pop,tag,color,spec,image_url,stock&active=eq.true"),
+      api("site_settings?select=data&id=eq.1")
+    ]);
+    if(cats.length) CATS = cats;
+    if(prods.length) PRODUCTS = prods;
+    const s = st[0] && st[0].data;
+    if(s){
+      if(s.wa) WA = String(s.wa).replace(/\D/g,"");
+      if(s.free_from != null) FREE_FROM = +s.free_from;
+      if(s.release) RELEASE = new Date(s.release);
+      if(s.promo && s.promo.code) PROMO = {...s.promo, code: String(s.promo.code).toUpperCase(), percent: +s.promo.percent, until: new Date(s.promo.until)};
+      else PROMO = {code:"", percent:0, until:new Date(0), untilText:""};
+      if(Array.isArray(s.setup)) SETUP = s.setup;
+      if(s.demo_note === false) DEMO_NOTE = false;
+    }
+  }catch(e){ console.warn("База недоступна, показываю встроенные данные:", e.message); }
+  SETUP = SETUP.filter(x => PRODUCTS.some(p => p.id === x.id));
+}
+async function saveOrder(name, phone, items, promo, request){
+  if(!DB) return null;
+  try{ return await api("rpc/place_order", {method:"POST", timeout:8000, body: JSON.stringify({p_name:name, p_phone:phone, p_items:items, p_promo:promo, p_request:request})}); }
+  catch(e){ console.warn("Заказ не сохранён в базе:", e.message); return null; }
+}
+/* WhatsApp: вкладку открываем сразу по клику (до запроса к базе), иначе браузер её заблокирует */
+const blankTab = () => DB ? window.open("about:blank", "_blank") : null;
+function goWA(w, msg){
+  const url = `https://wa.me/${WA}?text=${encodeURIComponent(msg)}`;
+  if(w && !w.closed){ try{ w.opener = null; }catch(e){} w.location.replace(url); }
+  else if(!window.open(url, "_blank", "noopener")) location.href = url;
+}
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+await loadRemote();
+if(!DEMO_NOTE){ const d = document.querySelector(".demo"); if(d) d.remove(); }
+
 const REDUCE = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const P = id => PRODUCTS.find(p => p.id === id);
 const $ = s => document.querySelector(s);
@@ -516,6 +574,11 @@ function art(cat, color){
     case "audio": return `<svg ${s} viewBox="0 0 260 260">${defs}${sh(130,240,90,10)}<path d="M58 140v-28a72 72 0 0 1 144 0v28" fill="none" stroke="url(#${id})" stroke-width="16" stroke-linecap="round"/><rect x="34" y="122" width="48" height="94" rx="20" fill="url(#${id})"/><rect x="178" y="122" width="48" height="94" rx="20" fill="url(#${id})"/><rect x="62" y="136" width="20" height="66" rx="9" fill="#150B2E" opacity=".6"/><rect x="178" y="136" width="20" height="66" rx="9" fill="#150B2E" opacity=".6"/><path d="M50 210c-8 14-2 24 16 28" stroke="${lo}" stroke-width="4" fill="none" stroke-linecap="round"/></svg>`;
   }
 }
+
+const RDATE = RELEASE.toLocaleDateString("ru-RU", {day:"numeric", month:"long", timeZone:"Asia/Almaty"});
+document.querySelectorAll(".rdate").forEach(e => e.textContent = RDATE);
+document.querySelectorAll(".ffrom").forEach(e => e.textContent = fmt(FREE_FROM));
+const pic = p => p.image_url ? `<img src="${esc(p.image_url)}" alt="" loading="lazy">` : art(p.cat, p.color);
 
 /* ---------- countdown ---------- */
 const pad = n => String(n).padStart(2,"0");
@@ -547,8 +610,8 @@ $("#copyCode").onclick = async () => {
 /* ---------- setup picks ---------- */
 function renderPicks(){
   $("#picks").innerHTML = SETUP.map((x,i) => { const p = P(x.id); return `
-    <article class="pick tilt" style="--i:${i}"><div class="pic">${art(p.cat,p.color)}</div><div class="b">
-      <span class="role">${x.role}</span><h3>${p.name}</h3><p>${p.spec}</p>
+    <article class="pick tilt" style="--i:${i}"><div class="pic">${pic(p)}</div><div class="b">
+      <span class="role">${esc(x.role)}</span><h3>${esc(p.name)}</h3><p>${esc(p.spec)}</p>
       <div class="prices">${promoLive()?`<b>${fmt(sale(p.price))}</b><s>${fmt(p.price)}</s>`:`<b>${fmt(p.price)}</b>`}</div>
       <button class="btn btn-hot" data-buy="${p.id}">${cart[p.id]?"В корзине":"В корзину"}</button></div></article>`; }).join("") ;
   $("#picks").querySelectorAll("[data-buy]").forEach(b => b.onclick = () => cart[b.dataset.buy] ? openCart() : add(b.dataset.buy, b));
@@ -557,12 +620,12 @@ function renderPicks(){
 /* ---------- catalog ---------- */
 const state = {cat:"all", brand:"all", q:"", sort:"pop"};
 function renderChips(){
-  $("#chips").innerHTML = [{id:"all",name:"Все товары"},...CATS].map(c => `<button class="chip" data-c="${c.id}" aria-pressed="${state.cat===c.id}">${c.name}</button>`).join("");
+  $("#chips").innerHTML = [{id:"all",name:"Все товары"},...CATS.filter(c => PRODUCTS.some(p => p.cat === c.id))].map(c => `<button class="chip" data-c="${esc(c.id)}" aria-pressed="${state.cat===c.id}">${esc(c.name)}</button>`).join("");
   $("#chips").querySelectorAll(".chip").forEach(b => b.onclick = () => { state.cat=b.dataset.c; renderChips(); renderGrid(); });
 }
 document.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => { state.cat=b.dataset.cat; renderChips(); renderGrid(); $("#catalog").scrollIntoView(); });
 const brands = [...new Set(PRODUCTS.map(p=>p.brand))].sort();
-$("#brandSel").innerHTML = `<option value="all">Все бренды</option>` + brands.map(b=>`<option>${b}</option>`).join("");
+$("#brandSel").innerHTML = `<option value="all">Все бренды</option>` + brands.map(b=>`<option>${esc(b)}</option>`).join("");
 $("#brandSel").onchange = e => { state.brand=e.target.value; renderGrid(); };
 $("#sortSel").onchange = e => { state.sort=e.target.value; renderGrid(); };
 $("#search").oninput = e => { state.q=e.target.value.trim().toLowerCase(); renderGrid(); };
@@ -571,9 +634,9 @@ function renderGrid(){
     .sort((a,b) => state.sort==="asc"?a.price-b.price : state.sort==="desc"?b.price-a.price : b.pop-a.pop);
   $("#resultCount").textContent = `${list.length} ${plural(list.length,["товар","товара","товаров"])}`;
   $("#grid").innerHTML = list.length ? list.map((p,i) => `
-    <article class="card tilt" style="--i:${Math.min(i,12)}"><div class="pic">${p.tag?`<span class="tag">${p.tag}</span>`:""}${art(p.cat,p.color)}</div>
-      <div class="b"><span class="brand">${p.brand}</span><h3>${p.name}</h3><p class="spec">${p.spec}</p>
-      <div class="buy"><span class="price">${fmt(p.price)}</span><button class="add ${cart[p.id]?'in':''}" data-id="${p.id}">${cart[p.id]?'В корзине':'В корзину'}</button></div></div></article>`).join("")
+    <article class="card tilt" style="--i:${Math.min(i,12)}"><div class="pic">${p.tag?`<span class="tag">${esc(p.tag)}</span>`:""}${pic(p)}</div>
+      <div class="b"><span class="brand">${esc(p.brand)}</span><h3>${esc(p.name)}</h3><p class="spec">${esc(p.spec)}</p>
+      <div class="buy"><span class="price">${fmt(p.price)}${p.old_price>p.price?` <s class="old">${fmt(p.old_price)}</s>`:""}</span><button class="add ${cart[p.id]?'in':''}" data-id="${esc(p.id)}">${cart[p.id]?'В корзине':'В корзину'}</button></div></div></article>`).join("")
     : `<div class="empty">Ничего не нашлось. Сбросьте фильтры или <a href="#preorder">оформите предзаказ</a> — привезём нужную модель.</div>`;
   $("#grid").querySelectorAll(".add").forEach(b => b.onclick = () => cart[b.dataset.id] ? openCart() : add(b.dataset.id, b));
 }
@@ -596,7 +659,7 @@ function renderCart(){
   $("#cartN").textContent = t.n;
   $("#cartFoot").style.display = ids.length ? "" : "none";
   $("#cartBody").innerHTML = ids.length ? ids.map(id => { const p=P(id); return `
-    <div class="ln"><div class="th">${art(p.cat,p.color)}</div><div><b>${p.name}</b><small>${fmt(p.price)}</small></div>
+    <div class="ln"><div class="th">${pic(p)}</div><div><b>${esc(p.name)}</b><small>${fmt(p.price)}</small></div>
     <div class="qty"><button data-q="-1" data-id="${id}" aria-label="Убрать одну">−</button><span>${cart[id]}</span><button data-q="1" data-id="${id}" aria-label="Добавить ещё">+</button></div></div>`; }).join("")
     : `<div class="empty">Корзина пуста. Начните со <a href="#setup" id="toSetup">сетапа к релизу</a>.</div>`;
   $("#cartBody").querySelectorAll("[data-q]").forEach(b => b.onclick = () => qty(b.dataset.id, +b.dataset.q));
@@ -622,22 +685,28 @@ $("#cartBtn").onclick = openCart; $("#closeCart").onclick = closeCart; $("#scrim
 document.addEventListener("keydown", e => { if(e.key === "Escape") closeCart(); });
 
 const phoneOk = v => v.replace(/\D/g,"").length >= 10;
-$("#checkout").onclick = () => {
+$("#checkout").onclick = async () => {
   const name=$("#cName").value.trim(), phone=$("#cPhone").value.trim();
   if(!name || !phoneOk(phone)){ $("#cartErr").textContent = "Укажите имя и телефон, чтобы менеджер связался с вами."; return; }
   $("#cartErr").textContent = "";
-  const t = totals();
+  const btn = $("#checkout"); if(btn.disabled) return; btn.disabled = true;
+  const w = blankTab(), t = totals();
+  const res = await saveOrder(name, phone, Object.keys(cart).map(id => ({id, qty:cart[id]})), t.disc ? PROMO.code : null, null);
   const lines = Object.keys(cart).map(id => `• ${P(id).name} × ${cart[id]} — ${fmt(P(id).price*cart[id])}`);
   const promo = t.disc ? `\nПромокод ${PROMO.code}: −${fmt(t.disc)}` : "";
-  const msg = `Здравствуйте! Хочу оформить заказ:\n${lines.join("\n")}${promo}\nИтого: ${fmt(t.sum)}\n\nИмя: ${name}\nТелефон: ${phone}`;
-  window.open(`https://wa.me/${WA}?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
+  const no = res && res.id ? ` №${res.id}` : "";
+  goWA(w, `Здравствуйте! Хочу оформить заказ${no}:\n${lines.join("\n")}${promo}\nИтого: ${fmt(res && res.id ? res.total : t.sum)}\n\nИмя: ${name}\nТелефон: ${phone}`);
+  if(res && res.id){ cart = {}; save(); applied = false; savePromo(); renderAll(); renderGrid(); renderPicks(); closeCart(); toast(`Заказ №${res.id} принят. Менеджер свяжется с вами`); }
+  btn.disabled = false;
 };
-$("#preForm").onsubmit = e => {
+$("#preForm").onsubmit = async e => {
   e.preventDefault();
   const f=e.target, name=f.name.value.trim(), phone=f.phone.value.trim(), item=f.item.value.trim();
   if(!name || !phoneOk(phone) || !item){ $("#preErr").textContent = "Заполните имя, телефон и что нужно привезти."; return; }
   $("#preErr").textContent = "";
-  window.open(`https://wa.me/${WA}?text=${encodeURIComponent(`Здравствуйте! Хочу оформить предзаказ.\nТовар: ${item}\nИмя: ${name}\nТелефон: ${phone}`)}`, "_blank", "noopener");
+  const w = blankTab(), res = await saveOrder(name, phone, [], null, item);
+  goWA(w, `Здравствуйте! Хочу оформить предзаказ${res && res.id ? ` №${res.id}` : ""}.\nТовар: ${item}\nИмя: ${name}\nТелефон: ${phone}`);
+  if(res && res.id){ f.reset(); toast(`Предзаказ №${res.id} принят`); }
 };
 let tt; function toast(t){ const el=$("#toast"); el.textContent=t; el.classList.add("show"); clearTimeout(tt); tt=setTimeout(()=>el.classList.remove("show"),2200); }
 
@@ -685,7 +754,7 @@ function celebrate(){
 function fly(src){
   const btn = $("#cartBtn"); btn.classList.remove("bump");
   if(REDUCE || !src) return;
-  const host = src.closest(".card,.pick"), svg = host && host.querySelector(".pic svg");
+  const host = src.closest(".card,.pick"), svg = host && host.querySelector(".pic svg, .pic img");
   if(!svg || !svg.animate) return;
   const a = svg.getBoundingClientRect(), b = btn.getBoundingClientRect();
   const g = svg.cloneNode(true); g.classList.add("fly");
@@ -818,7 +887,7 @@ if(!REDUCE && matchMedia("(hover: hover)").matches){
 
 /* бегущая строка */
 {
-  const items = ["GTA VI — 19 ноября", promoLive() ? `−${PROMO.percent}% по промокоду ${PROMO.code}` : "Новое поступление", "Бесплатная доставка от 100 000 ₸", "Самовывоз в Алматы", "Возврат 14 дней"];
+  const items = [`GTA VI — ${RDATE}`, promoLive() ? `−${PROMO.percent}% по промокоду ${PROMO.code}` : "Новое поступление", `Бесплатная доставка от ${fmt(FREE_FROM)}`, "Самовывоз в Алматы", "Возврат 14 дней"];
   $("#marq").innerHTML = items.map(t => `<span>${t}</span>`).join("").repeat(4);
 }
 

@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Almaty Device — админка</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F7F5F9; --card:#FFFFFF; --soft:#F0ECF4; --ink:#1E1036; --muted:#6B5D80; --line:#E4DDEA;
+  --accent:#E0247F; --accent-ink:#FFFFFF; --ok:#0E9F84; --warn:#C77700; --bad:#D33A3A; --info:#3B6FD8;
+  --font:"Manrope","Segoe UI",system-ui,-apple-system,sans-serif; color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#120A26; --card:#1D1238; --soft:#261848; --ink:#F5EEFA; --muted:#A797C2; --line:#33235A;
+    --accent:#FF3D9A; --ok:#2FD6BE; --warn:#FFB547; --bad:#FF6B6B; --info:#7FA6FF; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#120A26; --card:#1D1238; --soft:#261848; --ink:#F5EEFA; --muted:#A797C2; --line:#33235A;
+  --accent:#FF3D9A; --ok:#2FD6BE; --warn:#FFB547; --bad:#FF6B6B; --info:#7FA6FF; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 14px/1.5 var(--font);-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--accent)}
+[hidden]{display:none!important}
+.field{width:100%;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 12px;min-height:40px}
+.field:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+textarea.field{min-height:84px;resize:vertical}
+label{display:grid;gap:5px;font-weight:600;font-size:13px;color:var(--muted)}
+label > .field{font-weight:400;color:var(--ink);font-size:14px}
+.btn{border:0;border-radius:10px;padding:9px 16px;min-height:40px;font-weight:700;cursor:pointer;background:var(--soft);color:var(--ink);white-space:nowrap}
+.btn:hover{filter:brightness(.97)}
+.btn.pri{background:var(--accent);color:var(--accent-ink)}
+.btn.danger{background:transparent;color:var(--bad);border:1px solid var(--line)}
+.btn.sm{min-height:32px;padding:5px 11px;font-size:13px}
+.btn:disabled{opacity:.55;cursor:default}
+.muted{color:var(--muted)}
+.err{color:var(--bad);min-height:1.2em;margin:6px 0 0}
+
+/* вход */
+.login{min-height:100vh;display:grid;place-items:center;padding:16px}
+.login form{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:28px;width:min(380px,100%);display:grid;gap:14px}
+.login h1{margin:0;font-size:22px}
+.logo b{color:var(--accent)}
+
+/* каркас */
+.app{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+nav.side{background:var(--card);border-right:1px solid var(--line);padding:18px 12px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh}
+nav.side .logo{font-weight:800;font-size:17px;padding:4px 10px 16px}
+nav.side button{display:flex;justify-content:space-between;align-items:center;text-align:left;background:none;border:0;border-radius:9px;padding:9px 10px;font-weight:600;cursor:pointer;color:var(--muted)}
+nav.side button[aria-current="page"]{background:var(--soft);color:var(--ink)}
+nav.side .count{background:var(--accent);color:var(--accent-ink);border-radius:20px;padding:0 7px;font-size:12px;min-width:20px;text-align:center}
+nav.side .me{margin-top:auto;font-size:12px;color:var(--muted);padding:10px;border-top:1px solid var(--line);display:grid;gap:8px}
+main{padding:24px 28px 60px;min-width:0}
+h2{margin:0 0 16px;font-size:22px}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px}
+.bar .field{width:auto;min-width:180px}
+.bar .grow{flex:1}
+
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.stat small{color:var(--muted);font-weight:600}
+.stat b{display:block;font-size:22px;margin-top:2px;font-variant-numeric:tabular-nums}
+
+.table{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:auto}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;color:var(--muted);font-weight:700;background:var(--soft);position:sticky;top:0}
+tr:last-child td{border-bottom:0}
+tbody tr.click{cursor:pointer}
+tbody tr.click:hover{background:var(--soft)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.empty{padding:32px;text-align:center;color:var(--muted)}
+.thumb{width:44px;height:44px;border-radius:8px;background:var(--soft);object-fit:contain;display:block}
+.swatch{width:44px;height:44px;border-radius:8px;display:block}
+
+.st{display:inline-block;border-radius:20px;padding:2px 10px;font-size:12px;font-weight:700;white-space:nowrap;background:var(--soft)}
+.st.new{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
+.st.contacted{background:color-mix(in srgb,var(--info) 16%,transparent);color:var(--info)}
+.st.paid{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.st.shipped{background:color-mix(in srgb,var(--info) 16%,transparent);color:var(--info)}
+.st.done{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
+.st.canceled{color:var(--muted)}
+.off{opacity:.5}
+
+/* модальное окно */
+dialog{border:0;border-radius:18px;padding:0;background:var(--card);color:var(--ink);width:min(640px,calc(100vw - 32px));max-height:calc(100vh - 32px)}
+dialog::backdrop{background:rgba(10,4,24,.5)}
+dialog form{padding:22px;display:grid;gap:14px}
+dialog h3{margin:0;font-size:18px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
+.actions .left{margin-right:auto}
+.items{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.items div{display:flex;justify-content:space-between;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line)}
+.items div:last-child{border-bottom:0}
+.check{display:flex;gap:8px;align-items:center;font-weight:600;color:var(--ink)}
+.check input{width:18px;height:18px;accent-color:var(--accent)}
+.imgbox{display:flex;gap:12px;align-items:center}
+.imgbox img{width:84px;height:84px;object-fit:contain;border-radius:10px;background:var(--soft)}
+
+.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;display:grid;gap:14px;margin-bottom:16px;max-width:760px}
+.panel h3{margin:0;font-size:16px}
+.setup-row{display:grid;grid-template-columns:1fr 160px;gap:10px}
+
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:10px;font-weight:600;opacity:0;transition:.2s;pointer-events:none;z-index:100}
+.toast.show{opacity:1;transform:translateX(-50%)}
+
+@media (max-width:860px){
+  .app{grid-template-columns:1fr}
+  nav.side{position:sticky;height:auto;flex-direction:row;overflow-x:auto;padding:10px 12px;z-index:5;border-right:0;border-bottom:1px solid var(--line)}
+  nav.side .logo,nav.side .me{display:none}
+  nav.side button{flex:none}
+  main{padding:16px}
+  .stats{grid-template-columns:1fr 1fr}
+  .grid2,.grid3{grid-template-columns:1fr}
+  .bar .field{min-width:0;flex:1 1 140px}
+  .hide-m{display:none}
+}
+</style>
+</head>
+<body>
+
+<div class="login" id="login" hidden>
+  <form id="loginForm">
+    <div class="logo">Almaty <b>Device</b></div>
+    <h1>Вход в админку</h1>
+    <label>Email<input class="field" name="email" type="email" autocomplete="username" required></label>
+    <label>Пароль<input class="field" name="password" type="password" autocomplete="current-password" required></label>
+    <p class="err" id="loginErr"></p>
+    <button class="btn pri" type="submit">Войти</button>
+  </form>
+</div>
+
+<div class="login" id="noconfig" hidden>
+  <div class="panel" style="max-width:520px">
+    <h3>База не подключена</h3>
+    <p class="muted" style="margin:0">Впишите адрес проекта Supabase и публичный ключ в файл <code>config.js</code> в корне сайта. Инструкция в README.</p>
+  </div>
+</div>
+
+<div class="app" id="app" hidden>
+  <nav class="side" id="nav">
+    <div class="logo">Almaty <b>Device</b></div>
+    <button data-tab="orders">Заказы <span class="count" id="newCount" hidden></span></button>
+    <button data-tab="customers">Клиенты</button>
+    <button data-tab="products">Товары</button>
+    <button data-tab="categories">Категории</button>
+    <button data-tab="settings">Настройки сайта</button>
+    <button data-tab="staff">Сотрудники</button>
+    <div class="me"><span id="meEmail"></span><a href="../" target="_blank">Открыть сайт ↗</a><button class="btn sm" id="logout">Выйти</button></div>
+  </nav>
+  <main id="main"></main>
+</div>
+
+<dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="../config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+const CFG = window.AD_CONFIG || {};
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = n => Math.round(n || 0).toLocaleString("ru-RU") + " ₸";
+const dt = s => new Date(s).toLocaleString("ru-RU", {day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"});
+const phoneFmt = p => { const d = String(p||"").replace(/\D/g,""); return d.length === 11 ? `+${d[0]} ${d.slice(1,4)} ${d.slice(4,7)} ${d.slice(7,9)} ${d.slice(9)}` : "+" + d; };
+const STATUS = {new:"Новый", contacted:"Связались", paid:"Оплачен", shipped:"Отправлен", done:"Выполнен", canceled:"Отменён"};
+const stBadge = s => `<span class="st ${s}">${STATUS[s] || s}</span>`;
+let tt; function toast(t){ const el = $("#toast"); el.textContent = t; el.classList.add("show"); clearTimeout(tt); tt = setTimeout(() => el.classList.remove("show"), 2400); }
+const fail = e => { console.error(e); toast("Ошибка: " + (e.message || e)); };
+
+if(!CFG.supabaseUrl || !CFG.supabaseKey){ $("#noconfig").hidden = false; throw new Error("no config"); }
+const sb = supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey);
+let ME = null, ROLE = null, TAB = "orders";
+let CATS = [], PRODUCTS = [];
+
+/* ───────── вход ───────── */
+$("#loginForm").onsubmit = async e => {
+  e.preventDefault();
+  const f = e.target, btn = f.querySelector("button"); btn.disabled = true; $("#loginErr").textContent = "";
+  const { error } = await sb.auth.signInWithPassword({ email: f.email.value.trim(), password: f.password.value });
+  btn.disabled = false;
+  if(error) $("#loginErr").textContent = error.message === "Invalid login credentials" ? "Неверный email или пароль" : error.message;
+};
+$("#logout").onclick = () => sb.auth.signOut();
+sb.auth.onAuthStateChange((_ev, session) => { setTimeout(() => boot(session), 0); });
+
+async function boot(session){
+  if(!session){ ME = null; $("#app").hidden = true; $("#login").hidden = false; return; }
+  if(ME && ME.id === session.user.id) return;
+  ME = session.user;
+  const { data } = await sb.from("staff").select("role").eq("user_id", ME.id).maybeSingle();
+  if(!data){
+    $("#loginErr").textContent = "У этого пользователя нет доступа к админке. Попросите администратора добавить вас.";
+    ME = null; await sb.auth.signOut(); return;
+  }
+  ROLE = data.role;
+  $("#meEmail").textContent = `${ME.email} · ${ROLE === "admin" ? "админ" : "менеджер"}`;
+  $("#login").hidden = true; $("#app").hidden = false;
+  document.querySelector('[data-tab="staff"]').hidden = ROLE !== "admin";
+  const h = location.hash.slice(1); show(h && TABS[h] ? h : "orders");
+  refreshNewCount();
+  sb.channel("orders").on("postgres_changes", {event:"INSERT", schema:"public", table:"orders"}, p => {
+    toast(`Новый ${p.new.kind === "preorder" ? "предзаказ" : "заказ"} №${p.new.id}`);
+    refreshNewCount(); if(TAB === "orders") TABS.orders();
+  }).subscribe();
+}
+async function refreshNewCount(){
+  const { count } = await sb.from("orders").select("id", {count:"exact", head:true}).eq("status","new");
+  $("#newCount").hidden = !count; $("#newCount").textContent = count || "";
+}
+
+/* ───────── навигация ───────── */
+document.querySelectorAll("#nav [data-tab]").forEach(b => b.onclick = () => show(b.dataset.tab));
+function show(tab){
+  TAB = tab; history.replaceState(null, "", "#" + tab);
+  document.querySelectorAll("#nav [data-tab]").forEach(b => b.dataset.tab === tab ? b.setAttribute("aria-current","page") : b.removeAttribute("aria-current"));
+  $("#main").innerHTML = `<p class="muted">Загрузка…</p>`;
+  TABS[tab]().catch(fail);
+}
+async function loadCatalog(){
+  const [c, p] = await Promise.all([
+    sb.from("categories").select("*").order("sort"),
+    sb.from("products").select("*").order("cat").order("pop", {ascending:false})
+  ]);
+  if(c.error) throw c.error; if(p.error) throw p.error;
+  CATS = c.data; PRODUCTS = p.data;
+}
+function openDialog(html, onSubmit){
+  const d = $("#dlg"), f = $("#dlgForm");
+  f.innerHTML = html;
+  f.onsubmit = async e => {
+    const sub = e.submitter && e.submitter.value;
+    if(sub === "cancel") return;
+    e.preventDefault();
+    const btns = f.querySelectorAll("button"); btns.forEach(b => b.disabled = true);
+    try{ const close = await onSubmit(sub, f); if(close !== false) d.close(); }
+    catch(err){ fail(err); }
+    finally{ btns.forEach(b => b.disabled = false); }
+  };
+  d.showModal();
+  return f;
+}
+
+const TABS = {};
+
+/* ───────── заказы ───────── */
+const OF = {status:"active", q:"", period:"30"};
+TABS.orders = async () => {
+  let q = sb.from("orders").select("*").order("created_at", {ascending:false}).limit(500);
+  if(OF.period !== "all") q = q.gte("created_at", new Date(Date.now() - OF.period * 864e5).toISOString());
+  const { data, error } = await q; if(error) throw error;
+  const live = data.filter(o => o.status !== "canceled");
+  const today = new Date(); today.setHours(0,0,0,0);
+  const revenue = live.filter(o => ["paid","shipped","done"].includes(o.status)).reduce((s,o) => s + o.total, 0);
+  const avg = live.filter(o => o.kind === "order").length ? live.filter(o => o.kind === "order").reduce((s,o) => s + o.total, 0) / live.filter(o => o.kind === "order").length : 0;
+  let list = data;
+  if(OF.status === "active") list = list.filter(o => !["done","canceled"].includes(o.status));
+  else if(OF.status !== "all") list = list.filter(o => o.status === OF.status);
+  if(OF.q){ const s = OF.q.toLowerCase(), d = s.replace(/\D/g,""); list = list.filter(o => String(o.id) === s.replace("№","") || o.name.toLowerCase().includes(s) || (d && o.phone.includes(d))); }
+  const period = {"1":"сегодня","7":"за 7 дней","30":"за 30 дней","all":"за всё время"}[OF.period];
+  $("#main").innerHTML = `
+    <h2>Заказы</h2>
+    <div class="stats">
+      <div class="stat"><small>Заявок ${period}</small><b>${live.length}</b></div>
+      <div class="stat"><small>Новых, ждут ответа</small><b>${data.filter(o => o.status === "new").length}</b></div>
+      <div class="stat"><small>Выручка ${period}</small><b>${fmt(revenue)}</b></div>
+      <div class="stat"><small>Средний чек</small><b>${fmt(avg)}</b></div>
+    </div>
+    <div class="bar">
+      <input class="field grow" id="oq" type="search" placeholder="Номер, имя или телефон" value="${esc(OF.q)}">
+      <select class="field" id="os">
+        <option value="active">В работе</option><option value="all">Все статусы</option>
+        ${Object.entries(STATUS).map(([k,v]) => `<option value="${k}">${v}</option>`).join("")}
+      </select>
+      <select class="field" id="op"><option value="1">Сегодня</option><option value="7">7 дней</option><option value="30">30 дней</option><option value="all">Всё время</option></select>
+      <button class="btn" id="oexp">Скачать CSV</button>
+    </div>
+    <div class="table"><table>
+      <thead><tr><th>№</th><th class="hide-m">Дата</th><th>Клиент</th><th class="hide-m">Состав</th><th class="num">Сумма</th><th>Статус</th></tr></thead>
+      <tbody>${list.map(o => `
+        <tr class="click" data-id="${o.id}">
+          <td><b>${o.id}</b></td><td class="muted hide-m">${dt(o.created_at)}</td>
+          <td>${esc(o.name)}<br><span class="muted">${phoneFmt(o.phone)}</span></td>
+          <td class="hide-m">${o.kind === "preorder" ? `<i>Предзаказ:</i> ${esc(o.request)}` : o.items.map(i => `${esc(i.name)} × ${i.qty}`).join("<br>")}</td>
+          <td class="num">${o.kind === "preorder" ? "—" : fmt(o.total)}</td><td>${stBadge(o.status)}</td>
+        </tr>`).join("")}</tbody>
+    </table>${list.length ? "" : `<div class="empty">Заказов нет</div>`}</div>`;
+  $("#os").value = OF.status; $("#op").value = OF.period;
+  $("#oq").oninput = e => { OF.q = e.target.value.trim(); clearTimeout(OF.t); OF.t = setTimeout(() => TABS.orders().then(() => { const i = $("#oq"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }), 250); };
+  $("#os").onchange = e => { OF.status = e.target.value; TABS.orders(); };
+  $("#op").onchange = e => { OF.period = e.target.value; TABS.orders(); };
+  $("#oexp").onclick = () => csv(`orders-${new Date().toISOString().slice(0,10)}.csv`,
+    [["№","Дата","Тип","Статус","Имя","Телефон","Состав","Сумма","Скидка","Промокод","Заметка"],
+     ...list.map(o => [o.id, new Date(o.created_at).toLocaleString("ru-RU"), o.kind === "preorder" ? "Предзаказ" : "Заказ", STATUS[o.status], o.name, "+" + o.phone,
+       o.kind === "preorder" ? o.request : o.items.map(i => `${i.name} × ${i.qty}`).join("; "), o.total, o.discount, o.promo_code || "", o.manager_note])]);
+  document.querySelectorAll("tr[data-id]").forEach(tr => tr.onclick = () => orderDialog(data.find(o => o.id == tr.dataset.id)));
+};
+function orderDialog(o){
+  const wa = `https://wa.me/${o.phone}`;
+  openDialog(`
+    <h3>${o.kind === "preorder" ? "Предзаказ" : "Заказ"} №${o.id} <span class="muted" style="font-weight:500;font-size:14px">от ${new Date(o.created_at).toLocaleString("ru-RU")}</span></h3>
+    <div class="grid2">
+      <div><b>${esc(o.name)}</b><br><a href="tel:+${o.phone}">${phoneFmt(o.phone)}</a> · <a href="${wa}" target="_blank" rel="noopener">WhatsApp</a></div>
+      <label>Статус<select class="field" name="status">${Object.entries(STATUS).map(([k,v]) => `<option value="${k}" ${k === o.status ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+    </div>
+    ${o.kind === "preorder" ? `<div class="items"><div>${esc(o.request)}</div></div>` : `
+    <div class="items">
+      ${o.items.map(i => `<div><span>${esc(i.name)} × ${i.qty}</span><span>${fmt(i.price * i.qty)}</span></div>`).join("")}
+      ${o.discount ? `<div class="muted"><span>Промокод ${esc(o.promo_code)}</span><span>−${fmt(o.discount)}</span></div>` : ""}
+      <div><b>Итого</b><b>${fmt(o.total)}</b></div>
+    </div>`}
+    <label>Заметка менеджера<textarea class="field" name="note" placeholder="Адрес доставки, трек-номер, договорённости">${esc(o.manager_note)}</textarea></label>
+    <div class="actions">
+      ${ROLE === "admin" ? `<button class="btn danger left" value="delete">Удалить</button>` : ""}
+      <button class="btn" value="cancel" formnovalidate>Закрыть</button>
+      <button class="btn pri" value="save">Сохранить</button>
+    </div>`, async (act, f) => {
+      if(act === "delete"){
+        if(!confirm(`Удалить заказ №${o.id} без возможности восстановления?`)) return false;
+        const { error } = await sb.from("orders").delete().eq("id", o.id); if(error) throw error; toast("Заказ удалён");
+      } else {
+        const { error } = await sb.from("orders").update({status: f.status.value, manager_note: f.note.value}).eq("id", o.id); if(error) throw error; toast("Сохранено");
+      }
+      refreshNewCount(); TABS.orders();
+    });
+}
+function csv(name, rows){
+  const s = "﻿" + rows.map(r => r.map(v => `"${String(v ?? "").replace(/"/g,'""')}"`).join(";")).join("\r\n");
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([s], {type:"text/csv"})); a.download = name; a.click(); URL.revokeObjectURL(a.href);
+}
+
+/* ───────── клиенты ───────── */
+const CF = {q:""};
+TABS.customers = async () => {
+  const [c, o] = await Promise.all([
+    sb.from("customers").select("*").order("created_at", {ascending:false}).limit(2000),
+    sb.from("orders").select("id,customer_id,total,status,created_at,kind,items,request").limit(5000)
+  ]);
+  if(c.error) throw c.error; if(o.error) throw o.error;
+  const by = {}; o.data.forEach(x => (by[x.customer_id] ||= []).push(x));
+  let rows = c.data.map(x => { const os = by[x.id] || [], ok = os.filter(z => ["paid","shipped","done"].includes(z.status));
+    return {...x, orders: os, n: os.length, spent: ok.reduce((s,z) => s + z.total, 0), last: os.reduce((m,z) => z.created_at > m ? z.created_at : m, "")}; });
+  if(CF.q){ const s = CF.q.toLowerCase(), d = s.replace(/\D/g,""); rows = rows.filter(r => r.name.toLowerCase().includes(s) || (d && r.phone.includes(d))); }
+  $("#main").innerHTML = `
+    <h2>Клиенты</h2>
+    <div class="bar"><input class="field grow" id="cq" type="search" placeholder="Имя или телефон" value="${esc(CF.q)}"><span class="muted">${rows.length} чел.</span></div>
+    <div class="table"><table>
+      <thead><tr><th>Клиент</th><th class="hide-m">Заметки</th><th class="num">Заказов</th><th class="num">Оплачено</th><th class="hide-m">Последний</th></tr></thead>
+      <tbody>${rows.map(r => `<tr class="click" data-id="${r.id}"><td>${esc(r.name) || "—"}<br><span class="muted">${phoneFmt(r.phone)}</span></td>
+        <td class="hide-m muted">${esc(r.notes).slice(0,80)}</td><td class="num">${r.n}</td><td class="num">${fmt(r.spent)}</td><td class="hide-m muted">${r.last ? dt(r.last) : ""}</td></tr>`).join("")}</tbody>
+    </table>${rows.length ? "" : `<div class="empty">Клиенты появятся после первого заказа с сайта</div>`}</div>`;
+  $("#cq").oninput = e => { CF.q = e.target.value.trim(); clearTimeout(CF.t); CF.t = setTimeout(() => TABS.customers().then(() => { const i = $("#cq"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }), 250); };
+  document.querySelectorAll("tr[data-id]").forEach(tr => tr.onclick = () => customerDialog(rows.find(r => r.id === tr.dataset.id)));
+};
+function customerDialog(c){
+  openDialog(`
+    <h3>Клиент</h3>
+    <div class="grid2">
+      <label>Имя<input class="field" name="name" value="${esc(c.name)}"></label>
+      <label>Телефон<input class="field" value="${phoneFmt(c.phone)}" disabled></label>
+    </div>
+    <div><a href="tel:+${c.phone}">Позвонить</a> · <a href="https://wa.me/${c.phone}" target="_blank" rel="noopener">Написать в WhatsApp</a></div>
+    <label>Заметки<textarea class="field" name="notes" placeholder="Предпочтения, адрес, договорённости">${esc(c.notes)}</textarea></label>
+    <div><b>История заказов</b> · оплачено ${fmt(c.spent)}</div>
+    <div class="items">${c.orders.sort((a,b) => b.created_at.localeCompare(a.created_at)).map(o => `<div><span>№${o.id} · ${dt(o.created_at)} · ${o.kind === "preorder" ? "предзаказ: " + esc(o.request) : o.items.map(i => esc(i.name)).join(", ")}</span><span>${stBadge(o.status)}</span></div>`).join("") || `<div class="muted">Заказов нет</div>`}</div>
+    <div class="actions"><button class="btn" value="cancel" formnovalidate>Закрыть</button><button class="btn pri" value="save">Сохранить</button></div>`,
+    async (_a, f) => { const { error } = await sb.from("customers").update({name: f.name.value.trim(), notes: f.notes.value}).eq("id", c.id); if(error) throw error; toast("Сохранено"); TABS.customers(); });
+}
+
+/* ───────── товары ───────── */
+const PF = {q:"", cat:"all"};
+TABS.products = async () => {
+  await loadCatalog();
+  const cn = id => (CATS.find(c => c.id === id) || {}).name || id;
+  let list = PRODUCTS;
+  if(PF.cat !== "all") list = list.filter(p => p.cat === PF.cat);
+  if(PF.q){ const s = PF.q.toLowerCase(); list = list.filter(p => (p.name + " " + p.brand + " " + p.id).toLowerCase().includes(s)); }
+  $("#main").innerHTML = `
+    <h2>Товары</h2>
+    <div class="bar">
+      <input class="field grow" id="pq" type="search" placeholder="Название, бренд или код" value="${esc(PF.q)}">
+      <select class="field" id="pc"><option value="all">Все категории</option>${CATS.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("")}</select>
+      <button class="btn pri" id="padd">+ Добавить товар</button>
+    </div>
+    <div class="table"><table>
+      <thead><tr><th></th><th>Товар</th><th class="hide-m">Категория</th><th class="num">Цена</th><th class="num hide-m">Остаток</th><th class="num hide-m">Популярность</th></tr></thead>
+      <tbody>${list.map(p => `<tr class="click ${p.active ? "" : "off"}" data-id="${esc(p.id)}">
+        <td>${p.image_url ? `<img class="thumb" src="${esc(p.image_url)}" alt="">` : `<span class="swatch" style="background:${esc(p.color)}"></span>`}</td>
+        <td><b>${esc(p.name)}</b>${p.active ? "" : " · скрыт"}${p.tag ? ` <span class="st">${esc(p.tag)}</span>` : ""}<br><span class="muted">${esc(p.brand)} · ${esc(p.id)}</span></td>
+        <td class="hide-m">${esc(cn(p.cat))}</td><td class="num">${fmt(p.price)}</td><td class="num hide-m">${p.stock ?? "—"}</td><td class="num hide-m">${p.pop}</td></tr>`).join("")}</tbody>
+    </table>${list.length ? "" : `<div class="empty">Товаров нет</div>`}</div>`;
+  $("#pc").value = PF.cat;
+  $("#pq").oninput = e => { PF.q = e.target.value.trim(); clearTimeout(PF.t); PF.t = setTimeout(() => TABS.products().then(() => { const i = $("#pq"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }), 200); };
+  $("#pc").onchange = e => { PF.cat = e.target.value; TABS.products(); };
+  $("#padd").onclick = () => productDialog(null);
+  document.querySelectorAll("tr[data-id]").forEach(tr => tr.onclick = () => productDialog(PRODUCTS.find(p => p.id === tr.dataset.id)));
+};
+const TR = {а:"a",б:"b",в:"v",г:"g",д:"d",е:"e",ё:"e",ж:"zh",з:"z",и:"i",й:"y",к:"k",л:"l",м:"m",н:"n",о:"o",п:"p",р:"r",с:"s",т:"t",у:"u",ф:"f",х:"h",ц:"ts",ч:"ch",ш:"sh",щ:"sch",ы:"y",э:"e",ю:"yu",я:"ya",ә:"a",ғ:"g",қ:"k",ң:"n",ө:"o",ұ:"u",ү:"u",һ:"h",і:"i"};
+const slug = s => [...s.toLowerCase()].map(c => TR[c] ?? c).join("").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
+const productSlug = (brand, name) => slug(brand && !name.toLowerCase().includes(brand.toLowerCase()) ? brand + " " + name : name);
+function productDialog(p){
+  const isNew = !p; p = p || {active:true, pop:5, color:"#8E86A8", cat:(CATS[0]||{}).id, price:0};
+  let image = p.image_url || null;
+  const f = openDialog(`
+    <h3>${isNew ? "Новый товар" : "Товар"}</h3>
+    <div class="grid2">
+      <label>Название<input class="field" name="name" required value="${esc(p.name)}"></label>
+      <label>Бренд<input class="field" name="brand" value="${esc(p.brand)}"></label>
+    </div>
+    <div class="grid3">
+      <label>Категория<select class="field" name="cat">${CATS.map(c => `<option value="${esc(c.id)}" ${c.id === p.cat ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></label>
+      <label>Цена, ₸<input class="field" name="price" type="number" min="0" step="10" required value="${p.price ?? ""}"></label>
+      <label>Старая цена, ₸<input class="field" name="old_price" type="number" min="0" step="10" value="${p.old_price ?? ""}" placeholder="не обязательно"></label>
+    </div>
+    <label>Описание<textarea class="field" name="spec" placeholder="Коротко: главное о товаре">${esc(p.spec)}</textarea></label>
+    <div class="grid3">
+      <label>Метка на карточке<input class="field" name="tag" value="${esc(p.tag)}" placeholder="Хит, Новинка…"></label>
+      <label>Остаток, шт.<input class="field" name="stock" type="number" min="0" value="${p.stock ?? ""}" placeholder="не считать"></label>
+      <label>Популярность<input class="field" name="pop" type="number" min="0" max="100" value="${p.pop}" title="Чем больше, тем выше в каталоге"></label>
+    </div>
+    <div class="grid2">
+      <label>Фото<div class="imgbox"><img id="pimg" alt="" ${image ? `src="${esc(image)}"` : "hidden"}><div style="display:grid;gap:6px">
+        <input type="file" name="file" accept="image/png,image/jpeg,image/webp"><button type="button" class="btn sm" id="pimgdel" ${image ? "" : "hidden"}>Убрать фото</button></div></div></label>
+      <label>Цвет рисунка (если нет фото)<input class="field" name="color" type="color" value="${esc(p.color)}" style="padding:4px;height:44px"></label>
+    </div>
+    <div class="grid2">
+      <label>Код товара (в адресе и корзине)<input class="field" name="id" value="${esc(p.id)}" ${isNew ? "" : "disabled"} placeholder="заполнится из названия" pattern="[a-z0-9-]+"></label>
+      <label class="check" style="align-self:end;min-height:40px"><input type="checkbox" name="active" ${p.active ? "checked" : ""}> Показывать на сайте</label>
+    </div>
+    <div class="actions">
+      ${isNew ? "" : `<button class="btn danger left" value="delete" formnovalidate>Удалить</button>`}
+      <button class="btn" value="cancel" formnovalidate>Отмена</button>
+      <button class="btn pri" value="save">Сохранить</button>
+    </div>`, async (act, f) => {
+      if(act === "delete"){
+        if(!confirm(`Удалить «${p.name}»? Если товар просто закончился, лучше снимите галочку «Показывать на сайте».`)) return false;
+        const { error } = await sb.from("products").delete().eq("id", p.id); if(error) throw error; toast("Товар удалён"); return TABS.products();
+      }
+      const id = isNew ? (f.id.value.trim() || productSlug(f.brand.value.trim(), f.name.value.trim()) || "item-" + Date.now()) : p.id;
+      const file = f.file.files[0];
+      if(file){
+        if(file.size > 5e6) throw new Error("Фото больше 5 МБ, уменьшите его");
+        const path = `${id}-${Date.now()}.${(file.name.split(".").pop() || "jpg").toLowerCase()}`;
+        const up = await sb.storage.from("product-images").upload(path, file, {upsert:true, contentType:file.type});
+        if(up.error) throw up.error;
+        image = sb.storage.from("product-images").getPublicUrl(path).data.publicUrl;
+      }
+      const num = v => v === "" ? null : +v;
+      const row = {name:f.name.value.trim(), brand:f.brand.value.trim(), cat:f.cat.value, price:+f.price.value, old_price:num(f.old_price.value),
+        spec:f.spec.value.trim(), tag:f.tag.value.trim() || null, stock:num(f.stock.value), pop:+f.pop.value || 0, color:f.color.value, image_url:image, active:f.active.checked};
+      const r = isNew ? await sb.from("products").insert({id, ...row}) : await sb.from("products").update(row).eq("id", id);
+      if(r.error) throw r.error.code === "23505" ? new Error("Товар с таким кодом уже есть") : r.error;
+      toast("Сохранено"); TABS.products();
+    });
+  f.file.onchange = () => { const x = f.file.files[0]; if(x){ const i = $("#pimg"); i.src = URL.createObjectURL(x); i.hidden = false; $("#pimgdel").hidden = false; } };
+  $("#pimgdel").onclick = () => { image = null; f.file.value = ""; $("#pimg").hidden = true; $("#pimgdel").hidden = true; };
+}
+
+/* ───────── категории ───────── */
+TABS.categories = async () => {
+  await loadCatalog();
+  $("#main").innerHTML = `
+    <h2>Категории</h2>
+    <div class="panel">
+      <p class="muted" style="margin:0">Порядок здесь — порядок кнопок-фильтров в каталоге. Категорию с товарами удалить нельзя: сначала перенесите товары.</p>
+      <div id="clist" style="display:grid;gap:10px">${CATS.map(c => catRow(c)).join("")}</div>
+      <div class="actions"><button class="btn" id="cadd">+ Категория</button><button class="btn pri" id="csave">Сохранить</button></div>
+    </div>`;
+  $("#cadd").onclick = () => $("#clist").insertAdjacentHTML("beforeend", catRow({id:"", name:"", sort:CATS.length + 1}, true));
+  $("#clist").onclick = e => { const b = e.target.closest("[data-del]"); if(b) b.closest(".setup-row").remove(); };
+  $("#csave").onclick = async () => {
+    const rows = [...document.querySelectorAll("#clist .setup-row")].map((r, i) => ({ id: r.querySelector("[name=id]").value.trim() || slug(r.querySelector("[name=name]").value) || "cat-" + i, name: r.querySelector("[name=name]").value.trim(), sort: i + 1 })).filter(r => r.name);
+    const gone = CATS.filter(c => !rows.some(r => r.id === c.id));
+    const used = gone.filter(c => PRODUCTS.some(p => p.cat === c.id));
+    if(used.length){ await TABS.categories(); return toast(`В категории «${used[0].name}» есть товары — сначала перенесите их`); }
+    try{
+      const up = await sb.from("categories").upsert(rows); if(up.error) throw up.error;
+      if(gone.length){ const d = await sb.from("categories").delete().in("id", gone.map(c => c.id)); if(d.error) throw d.error; }
+      toast("Сохранено"); TABS.categories();
+    }catch(e){ fail(e); }
+  };
+};
+const catRow = (c, isNew) => `<div class="setup-row" style="grid-template-columns:1fr 160px auto">
+  <input class="field" name="name" value="${esc(c.name)}" placeholder="Название">
+  <input class="field" name="id" value="${esc(c.id)}" placeholder="код (латиницей)" ${isNew ? "" : "disabled"}>
+  <button class="btn sm danger" type="button" data-del>Убрать</button></div>`;
+
+/* ───────── настройки сайта ───────── */
+const toLocal = iso => { if(!iso) return ""; const d = new Date(iso); return new Date(d.getTime() + 5*3600e3).toISOString().slice(0,16); }; // время Алматы, UTC+5
+const fromLocal = v => v ? v + ":00+05:00" : null;
+TABS.settings = async () => {
+  await loadCatalog();
+  const { data, error } = await sb.from("site_settings").select("data").eq("id", 1).maybeSingle(); if(error) throw error;
+  const s = (data && data.data) || {}, pr = s.promo || {}, setup = s.setup || [];
+  const opts = sel => PRODUCTS.filter(p => p.active).map(p => `<option value="${esc(p.id)}" ${p.id === sel ? "selected" : ""}>${esc(p.name)}</option>`).join("");
+  $("#main").innerHTML = `
+    <h2>Настройки сайта</h2>
+    <form id="sf">
+      <div class="panel"><h3>Контакты и доставка</h3>
+        <div class="grid2">
+          <label>Номер WhatsApp для заказов<input class="field" name="wa" value="${esc(s.wa)}" placeholder="77078323500"></label>
+          <label>Бесплатная доставка от, ₸<input class="field" name="free_from" type="number" min="0" step="1000" value="${s.free_from ?? 100000}"></label>
+        </div>
+        <label>Дата релиза для обратного отсчёта (время Алматы)<input class="field" name="release" type="datetime-local" value="${toLocal(s.release)}"></label>
+      </div>
+      <div class="panel"><h3>Промокод</h3>
+        <div class="grid3">
+          <label>Код<input class="field" name="code" value="${esc(pr.code)}" placeholder="пусто — акции нет" style="text-transform:uppercase"></label>
+          <label>Скидка, %<input class="field" name="percent" type="number" min="0" max="90" value="${pr.percent ?? 10}"></label>
+          <label>Действует до (время Алматы)<input class="field" name="until" type="datetime-local" value="${toLocal(pr.until)}"></label>
+        </div>
+        <label>Как писать дату окончания на сайте<input class="field" name="untilText" value="${esc(pr.untilText)}" placeholder="22 ноября"></label>
+      </div>
+      <div class="panel"><h3>Подборка «Сетап к релизу»</h3>
+        ${[0,1,2,3].map(i => `<div class="setup-row"><select class="field" name="sp${i}"><option value="">— не показывать —</option>${opts((setup[i]||{}).id)}</select><input class="field" name="sr${i}" value="${esc((setup[i]||{}).role)}" placeholder="Подпись: Звук, Мышь…"></div>`).join("")}
+      </div>
+      <div class="panel"><h3>Прочее</h3>
+        <label class="check"><input type="checkbox" name="demo_note" ${s.demo_note !== false ? "checked" : ""}> Показывать в каталоге строку «Товары и цены — примеры»</label>
+      </div>
+      <div class="actions" style="max-width:760px"><button class="btn pri">Сохранить и опубликовать</button></div>
+    </form>`;
+  $("#sf").onsubmit = async e => {
+    e.preventDefault(); const f = e.target, btn = f.querySelector("button"); btn.disabled = true;
+    const code = f.code.value.trim().toUpperCase();
+    const next = {...s,
+      wa: f.wa.value.replace(/\D/g,""), free_from: +f.free_from.value || 0, release: fromLocal(f.release.value) || s.release,
+      promo: code ? {code, percent: +f.percent.value || 0, until: fromLocal(f.until.value) || new Date(Date.now() + 7*864e5).toISOString(), untilText: f.untilText.value.trim()} : null,
+      setup: [0,1,2,3].map(i => ({id: f["sp"+i].value, role: f["sr"+i].value.trim()})).filter(x => x.id),
+      demo_note: f.demo_note.checked};
+    const { error } = await sb.from("site_settings").upsert({id:1, data:next});
+    btn.disabled = false;
+    if(error) return fail(error);
+    toast("Сохранено. Сайт обновится при следующей загрузке страницы");
+  };
+};
+
+/* ───────── сотрудники ───────── */
+TABS.staff = async () => {
+  if(ROLE !== "admin"){ $("#main").innerHTML = `<p class="muted">Раздел доступен только администратору.</p>`; return; }
+  const { data, error } = await sb.from("staff").select("*").order("created_at"); if(error) throw error;
+  $("#main").innerHTML = `
+    <h2>Сотрудники</h2>
+    <div class="panel">
+      <p class="muted" style="margin:0"><b>Менеджер</b> работает с заказами, клиентами, товарами и настройками. <b>Админ</b> ещё добавляет сотрудников и удаляет заказы.</p>
+      <div class="table"><table><thead><tr><th>Email</th><th>Роль</th><th></th></tr></thead><tbody>
+        ${data.map(x => `<tr><td>${esc(x.email)}</td><td>${x.role === "admin" ? "Админ" : "Менеджер"}</td><td class="num">${x.user_id === ME.id ? `<span class="muted">это вы</span>` : `<button class="btn sm danger" data-rm="${x.user_id}">Убрать доступ</button>`}</td></tr>`).join("")}
+      </tbody></table></div>
+    </div>
+    <form class="panel" id="stf"><h3>Добавить сотрудника</h3>
+      <p class="muted" style="margin:0">Сначала создайте пользователя в Supabase: <b>Authentication → Users → Add user</b> (email и пароль). Потом добавьте его здесь.</p>
+      <div class="setup-row"><input class="field" name="email" type="email" required placeholder="email сотрудника"><select class="field" name="role"><option value="manager">Менеджер</option><option value="admin">Админ</option></select></div>
+      <div class="actions"><button class="btn pri">Дать доступ</button></div>
+    </form>`;
+  $("#stf").onsubmit = async e => {
+    e.preventDefault(); const f = e.target;
+    const { error } = await sb.rpc("add_staff", {p_email: f.email.value, p_role: f.role.value});
+    if(error) return toast(error.message); toast("Доступ выдан"); TABS.staff();
+  };
+  document.querySelectorAll("[data-rm]").forEach(b => b.onclick = async () => {
+    if(!confirm("Убрать доступ к админке?")) return;
+    const { error } = await sb.from("staff").delete().eq("user_id", b.dataset.rm); if(error) return fail(error); toast("Доступ убран"); TABS.staff();
+  });
+};
+</script>
+</body>
+</html>
