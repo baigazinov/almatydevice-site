@@ -3,6 +3,6 @@
 // доступ к заказам и клиентам закрыт правилами базы (RLS).
 // Пока поля пустые, сайт работает на встроенных товарах и шлёт заказы только в WhatsApp.
 window.AD_CONFIG = {
-  supabaseUrl: "",       // например: https://abcdefgh.supabase.co
-  supabaseKey: ""        // anon public key (eyJ...) или publishable key (sb_publishable_...)
+  supabaseUrl: "https://sdjrouzkuapqtotkkjit.supabase.co",
+  supabaseKey: "sb_publishable_ap85wMJPFmUfLEKyGPRkcQ_iGebGN1o"
 };
