@@ -206,6 +206,19 @@ end $$;
 revoke all on function public.add_staff(text,text) from public;
 grant execute on function public.add_staff(text,text) to authenticated;
 
+-- первый созданный пользователь автоматически становится админом
+create or replace function public.first_user_is_admin() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if not exists (select 1 from public.staff) then
+    insert into public.staff (user_id, email, role) values (new.id, lower(coalesce(new.email,'')), 'admin');
+  end if;
+  return new;
+end $$;
+drop trigger if exists on_first_user on auth.users;
+create trigger on_first_user after insert on auth.users
+  for each row execute function public.first_user_is_admin();
+
 -- ───────────── уведомление о новом заказе в Telegram ─────────────
 -- Включается, когда в private.secrets есть telegram_token и telegram_chat_id (см. README).
 
