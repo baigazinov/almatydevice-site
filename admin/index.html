@@ -116,12 +116,26 @@ dialog h3{margin:0;font-size:18px}
 .drow .span{grid-column:2 / -1}
 .drow .check{min-height:40px}
 @media (max-width:860px){.drow{grid-template-columns:1fr 1fr}.drow .check,.drow .span{grid-column:1 / -1}}
+code{background:var(--soft);border-radius:5px;padding:1px 5px;font-size:12.5px}
+.steps{margin:0;padding-left:20px;display:grid;gap:18px}
+.steps li{padding-left:4px}
+.steps li > div,.steps li > .tg-msg{margin-top:10px}
+.tg-what{margin:0;padding:0;list-style:none;color:var(--muted);display:grid;gap:4px}
+.tg-what b{color:var(--ink)}
+.tg-msg{margin:0;font-size:13px;color:var(--muted)}
+.tg-msg:empty{display:none}
+.tg-msg.ok{color:var(--ok)}
+.tg-msg.bad{color:var(--bad)}
+.tg-chats{display:grid;gap:8px}
+.tg-chats .check{padding:10px 12px;border:1px solid var(--line);border-radius:10px;cursor:pointer;font-weight:600}
+.tg-chats .check:has(input:checked){border-color:var(--accent)}
+.tg-chats .check span{font-weight:400;color:var(--muted)}
 
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:10px;font-weight:600;opacity:0;transition:.2s;pointer-events:none;z-index:100}
 .toast.show{opacity:1;transform:translateX(-50%)}
 
 @media (max-width:860px){
-  .app{grid-template-columns:1fr}
+  .app{grid-template-columns:1fr;align-content:start}
   nav.side{position:sticky;height:auto;flex-direction:row;overflow-x:auto;padding:10px 12px;z-index:5;border-right:0;border-bottom:1px solid var(--line)}
   nav.side .logo,nav.side .me{display:none}
   nav.side button{flex:none}
@@ -161,6 +175,7 @@ dialog h3{margin:0;font-size:18px}
     <button data-tab="products">Товары</button>
     <button data-tab="categories">Категории</button>
     <button data-tab="settings">Настройки сайта</button>
+    <button data-tab="telegram">Telegram</button>
     <button data-tab="staff">Сотрудники</button>
     <div class="me"><span id="meEmail"></span><a href="../" target="_blank">Открыть сайт ↗</a><button class="btn sm" id="logout">Выйти</button></div>
   </nav>
@@ -213,12 +228,13 @@ async function boot(session){
   ROLE = data.role;
   $("#meEmail").textContent = `${ME.email} · ${ROLE === "admin" ? "админ" : "менеджер"}`;
   $("#login").hidden = true; $("#app").hidden = false;
-  document.querySelector('[data-tab="staff"]').hidden = ROLE !== "admin";
+  document.querySelectorAll('[data-tab="staff"],[data-tab="telegram"]').forEach(b => b.hidden = ROLE !== "admin");
   const h = location.hash.slice(1); show(h && TABS[h] ? h : "orders");
   refreshNewCount();
   sb.channel("orders")
     .on("postgres_changes", {event:"INSERT", schema:"public", table:"orders"}, p => {
       if(p.new.kind === "preorder") toast(`Новая заявка на предзаказ №${p.new.id}`);
+      else if(p.new.status === "pending") toast(`Новый заказ №${p.new.id} — ждёт оплаты`);
       refreshNewCount(); if(TAB === "orders") TABS.orders();
     })
     .on("postgres_changes", {event:"UPDATE", schema:"public", table:"orders"}, p => {
@@ -600,6 +616,138 @@ TABS.settings = async () => {
     if(error) return fail(error);
     toast("Сохранено. Сайт обновится при следующей загрузке страницы");
   };
+};
+
+/* ───────── Telegram ───────── */
+// Токен бота уходит только в сам Telegram (проверка и поиск чата) и в закрытую часть базы.
+async function tgApi(token, method){
+  let r;
+  try{ r = await fetch(`https://api.telegram.org/bot${token}/${method}`); }
+  catch(e){ throw new Error("Нет связи с Telegram — проверьте интернет и попробуйте ещё раз"); }
+  const j = await r.json().catch(() => ({}));
+  if(j.ok) return j.result;
+  if(r.status === 401 || r.status === 404) throw new Error("Telegram не узнал токен — скопируйте его из @BotFather целиком");
+  if(r.status === 409) throw new Error("Этот бот уже подключён к другому сервису — создайте для уведомлений отдельного бота");
+  throw new Error(j.description || "Telegram ответил ошибкой " + r.status);
+}
+const TG_TYPES = {private:"личный чат", group:"группа", supergroup:"группа", channel:"канал"};
+const tgTitle = c => c.title || [c.first_name, c.last_name].filter(Boolean).join(" ") || (c.username ? "@" + c.username : String(c.id));
+function tgChats(updates){
+  const chats = new Map(), gone = new Set();
+  for(const u of updates) for(const v of Object.values(u)){
+    const c = v && v.chat; if(!c) continue;
+    chats.set(c.id, c);
+    if(v.migrate_to_chat_id || ["left","kicked"].includes(v.new_chat_member?.status)) gone.add(c.id); else gone.delete(c.id);
+  }
+  return [...chats.values()].filter(c => !gone.has(c.id));
+}
+async function tgRunTest(){
+  const out = $("#tgTestRes"), btn = $("#tgTest");
+  btn.disabled = true; out.className = "tg-msg"; out.textContent = "Отправляем тестовое сообщение…";
+  try{
+    const { data: id, error } = await sb.rpc("telegram_test"); if(error) throw error;
+    let r = null;
+    try{
+      for(let i = 0; i < 10 && !r; i++){
+        await new Promise(ok => setTimeout(ok, 700));
+        const res = await sb.rpc("telegram_test_result", {p_id: id}); if(res.error) throw res.error; r = res.data;
+      }
+    }catch(e){ console.warn(e); }
+    if(!r){ out.textContent = "Сообщение отправлено — проверьте Telegram. Если не пришло за минуту, подключите чат заново."; return; }
+    if(r.status === 200){ out.className = "tg-msg ok"; out.textContent = "✓ Тестовое сообщение доставлено — проверьте Telegram"; return; }
+    let d = ""; try{ d = JSON.parse(r.content).description || ""; }catch(e){}
+    out.className = "tg-msg bad";
+    out.textContent = /chat not found|blocked|kicked|not a member|deactivated/i.test(d)
+      ? "Telegram не доставил сообщение: бот не может писать в этот чат. Напишите боту /start (или верните его в группу) и подключите чат заново."
+      : `Telegram не доставил сообщение: ${d || r.error || "ошибка " + r.status}`;
+  }catch(e){ out.className = "tg-msg bad"; out.textContent = "Ошибка: " + (e.message || e); }
+  finally{ btn.disabled = false; }
+}
+TABS.telegram = async () => {
+  if(ROLE !== "admin"){ $("#main").innerHTML = `<p class="muted">Раздел доступен только администратору.</p>`; return; }
+  const { data: st, error } = await sb.rpc("telegram_status");
+  if(error){
+    if(error.code === "PGRST202" || /telegram_status/.test(error.message || "")){
+      $("#main").innerHTML = `<h2>Уведомления в Telegram</h2><div class="panel"><p class="muted" style="margin:0">Сначала обновите базу: выполните файл <code>supabase/schema.sql</code> в Supabase → SQL Editor.</p></div>`;
+      return;
+    }
+    throw error;
+  }
+  $("#main").innerHTML = `
+    <h2>Уведомления в Telegram</h2>
+    <div class="panel">
+      <p style="margin:0">${st.connected
+        ? `<span class="st done">Подключено</span>&nbsp; Уведомления приходят в «${esc(st.chat_title)}»${st.bot ? ` от бота @${esc(st.bot)}` : ""}.`
+        : `<span class="st">Не подключено</span>&nbsp; Подключите бота, и заказы будут приходить вам в Telegram.`}</p>
+      <ul class="tg-what">
+        <li>🕓 <b>новый заказ</b> ждёт оплаты — пока оплата подтверждается вручную, клиенту нужно отправить счёт;</li>
+        <li>✅ <b>заказ оплачен</b> — можно отгружать: состав, сумма, доставка и адрес;</li>
+        <li>🆕 <b>заявка на предзаказ</b>.</li>
+      </ul>
+      ${st.connected ? `<div class="actions" style="justify-content:flex-start">
+        <button class="btn" id="tgTest">Отправить тестовое сообщение</button>
+        <button class="btn" id="tgChange">Подключить другой чат</button>
+        <button class="btn danger" id="tgOff">Отключить</button></div>
+      <p class="tg-msg" id="tgTestRes"></p>` : ""}
+    </div>
+    <form class="panel" id="tgf" ${st.connected ? "hidden" : ""}>
+      <h3>Подключение за 3 шага</h3>
+      <ol class="steps">
+        <li><b>Создайте бота.</b> В Telegram откройте <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a>, отправьте <code>/newbot</code>, придумайте имя и адрес бота (адрес должен заканчиваться на <code>bot</code>). BotFather пришлёт токен — строку вида <code>123456789:AAH…</code>. Вставьте её сюда:
+          <div class="setup-row"><input class="field" name="token" autocomplete="off" spellcheck="false" placeholder="123456789:AAH…" required><button class="btn" type="button" id="tgCheck">Проверить</button></div>
+          <p class="tg-msg" id="tgBot"></p></li>
+        <li><b>Напишите боту.</b> Откройте своего бота и нажмите «Запустить». Чтобы уведомления видели несколько человек, создайте группу, добавьте в неё бота и напишите там любое сообщение. Потом нажмите:
+          <div><button class="btn" type="button" id="tgFind">Найти чат</button></div>
+          <p class="tg-msg" id="tgFindMsg"></p>
+          <div class="tg-chats" id="tgChats"></div></li>
+        <li><b>Подключите.</b> В выбранный чат придёт тестовое сообщение.
+          <div><button class="btn pri" id="tgSave" disabled>Подключить</button></div></li>
+      </ol>
+      <p class="muted" style="margin:0">Токен хранится в закрытой части базы: после подключения его не видно ни на сайте, ни в админке.</p>
+    </form>`;
+
+  const f = $("#tgf"); let bot = null;
+  const say = (el, text, cls = "") => { el.className = "tg-msg " + cls; el.textContent = text; };
+  const token = () => f.token.value.trim();
+  async function checkBot(){
+    if(!token()){ f.token.focus(); throw new Error("Сначала вставьте токен бота"); }
+    const me = await tgApi(token(), "getMe"); bot = me.username;
+    $("#tgBot").className = "tg-msg ok";
+    $("#tgBot").innerHTML = `✓ Бот @${esc(bot)} найден — <a href="https://t.me/${encodeURIComponent(bot)}" target="_blank" rel="noopener">открыть его в Telegram</a>`;
+  }
+  f.token.oninput = () => { bot = null; $("#tgBot").textContent = ""; $("#tgChats").innerHTML = ""; $("#tgFindMsg").textContent = ""; $("#tgSave").disabled = true; };
+  $("#tgCheck").onclick = async () => { try{ await checkBot(); }catch(e){ say($("#tgBot"), e.message, "bad"); } };
+  $("#tgFind").onclick = async () => {
+    const btn = $("#tgFind"), msg = $("#tgFindMsg"); btn.disabled = true; $("#tgChats").innerHTML = ""; $("#tgSave").disabled = true;
+    try{
+      if(!bot) await checkBot();
+      say(msg, "Ищем чаты…");
+      const chats = tgChats(await tgApi(token(), "getUpdates"));
+      if(!chats.length){ say(msg, `Боту пока никто не писал. Откройте @${bot}, нажмите «Запустить» и нажмите «Найти чат» ещё раз.`, "bad"); return; }
+      say(msg, chats.length > 1 ? "Выберите, куда присылать уведомления:" : "");
+      $("#tgChats").innerHTML = chats.map(c => `<label class="check"><input type="radio" name="chat" value="${c.id}" data-title="${esc(tgTitle(c))}" ${chats.length === 1 ? "checked" : ""}> ${esc(tgTitle(c))} <span>· ${TG_TYPES[c.type] || c.type}</span></label>`).join("");
+      $("#tgSave").disabled = !f.querySelector("[name=chat]:checked");
+      f.querySelectorAll("[name=chat]").forEach(r => r.onchange = () => $("#tgSave").disabled = false);
+    }catch(e){ say(msg, e.message, "bad"); }
+    finally{ btn.disabled = false; }
+  };
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const chat = f.querySelector("[name=chat]:checked"); if(!chat) return;
+    const btn = $("#tgSave"); btn.disabled = true;
+    const { error } = await sb.rpc("set_telegram", {p_token: token(), p_chat_id: chat.value, p_chat_title: chat.dataset.title, p_bot: bot});
+    if(error){ btn.disabled = false; return fail(error); }
+    await TABS.telegram(); tgRunTest();
+  };
+  if(st.connected){
+    $("#tgTest").onclick = tgRunTest;
+    $("#tgChange").onclick = () => { f.hidden = false; f.token.focus(); f.scrollIntoView({behavior:"smooth", block:"start"}); };
+    $("#tgOff").onclick = async () => {
+      if(!confirm("Отключить уведомления в Telegram?")) return;
+      const { error } = await sb.rpc("set_telegram", {p_token: null, p_chat_id: null}); if(error) return fail(error);
+      toast("Уведомления отключены"); TABS.telegram();
+    };
+  }
 };
 
 /* ───────── сотрудники ───────── */

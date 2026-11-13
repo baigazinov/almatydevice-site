@@ -358,7 +358,7 @@ begin
 
   return jsonb_build_object('id', o.id, 'status', 'paid');
 end $$;
-revoke all on function public.confirm_payment(bigint,text,text,int) from public;
+revoke all on function public.confirm_payment(bigint,text,text,int) from public, anon;
 grant execute on function public.confirm_payment(bigint,text,text,int) to authenticated, service_role;
 
 -- статус заказа для страницы «Ваш заказ»: только по номеру и секретному токену из ссылки
@@ -405,7 +405,7 @@ begin
   insert into staff (user_id, email, role) values (v_uid, lower(btrim(p_email)), p_role)
   on conflict (user_id) do update set role = excluded.role;
 end $$;
-revoke all on function public.add_staff(text,text) from public;
+revoke all on function public.add_staff(text,text) from public, anon;
 grant execute on function public.add_staff(text,text) to authenticated;
 
 -- первый созданный пользователь автоматически становится админом
@@ -421,39 +421,58 @@ drop trigger if exists on_first_user on auth.users;
 create trigger on_first_user after insert on auth.users
   for each row execute function public.first_user_is_admin();
 
--- ───────────── уведомление о новом заказе в Telegram ─────────────
--- Включается, когда в private.secrets есть telegram_token и telegram_chat_id (см. README).
+-- ───────────── уведомления о заказах в Telegram ─────────────
+-- Подключаются в админке: раздел «Telegram» (только для админа).
+-- Токен бота и чат хранятся в private.secrets: их не видно ни с сайта, ни из админки.
+
+create or replace function private.tg_send(p_text text) returns bigint
+language plpgsql security definer set search_path = public, private as $$
+declare v_token text; v_chat text;
+begin
+  select value into v_token from private.secrets where key = 'telegram_token';
+  select value into v_chat  from private.secrets where key = 'telegram_chat_id';
+  if v_token is null or v_chat is null then return null; end if;
+  return net.http_post(
+    url     := format('https://api.telegram.org/bot%s/sendMessage', v_token),
+    body    := jsonb_build_object('chat_id', v_chat, 'text', p_text, 'disable_web_page_preview', true),
+    headers := '{"Content-Type":"application/json"}'::jsonb
+  );
+end $$;
+revoke all on function private.tg_send(text) from public;
 
 create or replace function public.notify_telegram() returns trigger
 language plpgsql security definer set search_path = public, private as $$
 declare
-  v_token text; v_chat text; v_text text; v_lines text;
+  v_text text; v_lines text; v_info text; v_mode text;
 begin
-  select value into v_token from private.secrets where key = 'telegram_token';
-  select value into v_chat  from private.secrets where key = 'telegram_chat_id';
-  if v_token is null or v_chat is null then return new; end if;
+  if not exists (select 1 from private.secrets where key = 'telegram_chat_id') then return new; end if;
 
-  -- пишем только о заявках на предзаказ и об оплаченных заказах; неоплаченные корзины не беспокоят
-  if tg_op = 'INSERT' and new.kind = 'preorder' then
-    v_text := format(E'🆕 Заявка на предзаказ №%s\n%s, +%s\n\n%s', new.id, new.name, new.phone, new.request);
-  elsif new.kind = 'order' and new.status = 'paid' and (tg_op = 'INSERT' or old.status is distinct from 'paid') then
+  if new.kind = 'order' then
     select string_agg(format('• %s × %s', x->>'name', x->>'qty'), E'\n') into v_lines
-    from jsonb_array_elements(new.items) x;
-    v_text := format(E'✅ Оплачен заказ №%s — к отгрузке\n%s, +%s\n\n%s\n\nИтого: %s ₸%s\nДоставка: %s%s%s',
-      new.id, new.name, new.phone, v_lines, replace(to_char(new.total, 'FM999,999,999'), ',', ' '),
+    from jsonb_array_elements(coalesce(new.items, '[]'::jsonb)) x;
+    v_info := format(E'%s, +%s\n\n%s\n\nИтого: %s ₸%s\nДоставка: %s%s%s%s',
+      new.name, new.phone, v_lines, replace(to_char(new.total, 'FM999,999,999'), ',', ' '),
       case when new.promo_code is not null then format(' (промокод %s)', new.promo_code) else '' end,
       coalesce(new.delivery_name, '—'),
       case when new.city is not null then ', ' || new.city else '' end,
-      case when new.address is not null then ', ' || new.address else '' end);
+      case when new.address is not null then ', ' || new.address else '' end,
+      case when new.comment is not null then E'\nКомментарий: ' || new.comment else '' end);
+  end if;
+
+  if tg_op = 'INSERT' and new.kind = 'preorder' then
+    v_text := format(E'🆕 Заявка на предзаказ №%s\n%s, +%s\n\n%s', new.id, new.name, new.phone, new.request);
+  elsif new.kind = 'order' and new.status = 'paid' and (tg_op = 'INSERT' or old.status is distinct from 'paid') then
+    v_text := format(E'✅ Оплачен заказ №%s — к отгрузке\n%s', new.id, v_info);
+  elsif tg_op = 'INSERT' and new.kind = 'order' and new.status = 'pending' then
+    -- о неоплаченных пишем, только пока оплату подтверждает менеджер: ему нужно выставить счёт
+    select coalesce(data->'payment'->>'mode', 'manual') into v_mode from site_settings where id = 1;
+    if coalesce(v_mode, 'manual') <> 'manual' then return new; end if;
+    v_text := format(E'🕓 Новый заказ №%s — ждёт оплаты\nОтправьте клиенту счёт и после оплаты подтвердите её в админке.\n%s', new.id, v_info);
   else
     return new;
   end if;
 
-  perform net.http_post(
-    url     := format('https://api.telegram.org/bot%s/sendMessage', v_token),
-    body    := jsonb_build_object('chat_id', v_chat, 'text', v_text),
-    headers := '{"Content-Type":"application/json"}'::jsonb
-  );
+  perform private.tg_send(v_text);
   return new;
 exception when others then
   return new;   -- уведомление не должно ломать оформление заказа
@@ -462,6 +481,67 @@ end $$;
 drop trigger if exists orders_notify on public.orders;
 create trigger orders_notify after insert or update of status on public.orders
   for each row execute function public.notify_telegram();
+
+-- настройка из админки
+create or replace function public.telegram_status() returns jsonb
+language plpgsql stable security definer set search_path = public, private as $$
+begin
+  if not public.is_admin() then raise exception 'Только для администратора'; end if;
+  return jsonb_build_object(
+    'connected',  exists (select 1 from private.secrets where key = 'telegram_token')
+              and exists (select 1 from private.secrets where key = 'telegram_chat_id'),
+    'chat_title', (select value from private.secrets where key = 'telegram_chat_title'),
+    'bot',        (select value from private.secrets where key = 'telegram_bot'));
+end $$;
+revoke all on function public.telegram_status() from public, anon;
+grant execute on function public.telegram_status() to authenticated;
+
+-- p_token и p_chat_id = null — отключить уведомления
+create or replace function public.set_telegram(p_token text, p_chat_id text, p_chat_title text default null, p_bot text default null)
+returns void language plpgsql security definer set search_path = public, private as $$
+begin
+  if not public.is_admin() then raise exception 'Только для администратора'; end if;
+  if p_token is null and p_chat_id is null then
+    delete from private.secrets where key in ('telegram_token', 'telegram_chat_id', 'telegram_chat_title', 'telegram_bot');
+    return;
+  end if;
+  p_token := trim(p_token); p_chat_id := trim(p_chat_id);
+  if coalesce(p_token, '') !~ '^\d+:[A-Za-z0-9_-]{30,}$' then raise exception 'Токен бота выглядит неправильно — скопируйте его из @BotFather целиком'; end if;
+  if coalesce(p_chat_id, '') !~ '^-?\d+$' then raise exception 'Неверный ID чата'; end if;
+  insert into private.secrets (key, value) values
+    ('telegram_token', p_token),
+    ('telegram_chat_id', p_chat_id),
+    ('telegram_chat_title', coalesce(nullif(trim(p_chat_title), ''), p_chat_id)),
+    ('telegram_bot', coalesce(trim(p_bot), ''))
+  on conflict (key) do update set value = excluded.value;
+end $$;
+revoke all on function public.set_telegram(text, text, text, text) from public, anon;
+grant execute on function public.set_telegram(text, text, text, text) to authenticated;
+
+-- тестовое сообщение: возвращает номер запроса, результат — telegram_test_result(номер)
+create or replace function public.telegram_test() returns bigint
+language plpgsql security definer set search_path = public, private as $$
+declare v_id bigint;
+begin
+  if not public.is_admin() then raise exception 'Только для администратора'; end if;
+  v_id := private.tg_send(E'✅ Almaty Device: уведомления подключены.\nСюда будут приходить новые и оплаченные заказы и заявки на предзаказ.');
+  if v_id is null then raise exception 'Telegram не подключён'; end if;
+  return v_id;
+end $$;
+revoke all on function public.telegram_test() from public, anon;
+grant execute on function public.telegram_test() to authenticated;
+
+create or replace function public.telegram_test_result(p_id bigint) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+declare r record;
+begin
+  if not public.is_admin() then raise exception 'Только для администратора'; end if;
+  select status_code, error_msg, left(content, 500) as content into r from net._http_response where id = p_id;
+  if not found then return null; end if;
+  return jsonb_build_object('status', r.status_code, 'error', r.error_msg, 'content', r.content);
+end $$;
+revoke all on function public.telegram_test_result(bigint) from public, anon;
+grant execute on function public.telegram_test_result(bigint) to authenticated;
 
 -- ───────────── права доступа (RLS) ─────────────
 
