@@ -79,6 +79,11 @@ alter table public.orders add column if not exists public_token     uuid not nul
 alter table public.orders drop constraint if exists orders_status_check;
 alter table public.orders add constraint orders_status_check
   check (status in ('pending','new','contacted','paid','shipped','done','canceled'));
+-- откуда пришёл заказ: наш сайт или Тильда (добавлено позже)
+alter table public.orders add column if not exists source      text not null default 'site' check (source in ('site','tilda'));
+alter table public.orders add column if not exists external_id text;    -- номер заказа в Тильде
+alter table public.orders add column if not exists source_data jsonb;   -- всё, что прислала Тильда, как есть
+create unique index if not exists orders_external_uidx on public.orders (source, external_id) where external_id is not null;
 create index if not exists orders_created_idx  on public.orders (created_at desc);
 create index if not exists orders_status_idx   on public.orders (status);
 create index if not exists orders_customer_idx on public.orders (customer_id);
@@ -217,7 +222,7 @@ language sql security definer set search_path = public as $$
   with x as (
     update orders set status = 'canceled',
       manager_note = btrim(manager_note || ' Автоотмена: не оплачен за 24 часа.')
-    where status = 'pending' and created_at < now() - interval '24 hours'
+    where status = 'pending' and source = 'site' and created_at < now() - interval '24 hours'
     returning 1)
   select count(*)::int from x;
 $$;
@@ -444,6 +449,7 @@ create or replace function public.notify_telegram() returns trigger
 language plpgsql security definer set search_path = public, private as $$
 declare
   v_text text; v_lines text; v_info text; v_mode text;
+  v_src  text := case when new.source = 'tilda' then ' (Тильда)' else '' end;
 begin
   if not exists (select 1 from private.secrets where key = 'telegram_chat_id') then return new; end if;
 
@@ -462,12 +468,12 @@ begin
   if tg_op = 'INSERT' and new.kind = 'preorder' then
     v_text := format(E'🆕 Заявка на предзаказ №%s\n%s, +%s\n\n%s', new.id, new.name, new.phone, new.request);
   elsif new.kind = 'order' and new.status = 'paid' and (tg_op = 'INSERT' or old.status is distinct from 'paid') then
-    v_text := format(E'✅ Оплачен заказ №%s — к отгрузке\n%s', new.id, v_info);
+    v_text := format(E'✅ Оплачен заказ №%s%s — к отгрузке\n%s', new.id, v_src, v_info);
   elsif tg_op = 'INSERT' and new.kind = 'order' and new.status = 'pending' then
     -- о неоплаченных пишем, только пока оплату подтверждает менеджер: ему нужно выставить счёт
     select coalesce(data->'payment'->>'mode', 'manual') into v_mode from site_settings where id = 1;
     if coalesce(v_mode, 'manual') <> 'manual' then return new; end if;
-    v_text := format(E'🕓 Новый заказ №%s — ждёт оплаты\nОтправьте клиенту счёт и после оплаты подтвердите её в админке.\n%s', new.id, v_info);
+    v_text := format(E'🕓 Новый заказ №%s%s — ждёт оплаты\nОтправьте клиенту счёт и после оплаты подтвердите её в админке.\n%s', new.id, v_src, v_info);
   else
     return new;
   end if;
@@ -542,6 +548,125 @@ begin
 end $$;
 revoke all on function public.telegram_test_result(bigint) from public, anon;
 grant execute on function public.telegram_test_result(bigint) to authenticated;
+
+-- ───────────── заказы с Тильды ─────────────
+-- Тильда отправляет каждый заказ (вебхук) на серверную функцию supabase/functions/tilda-order,
+-- а та вызывает tilda_order(). Вызвать её может только сервер (service_role) и только с ключом из админки.
+-- Если в Тильде включено «Отправлять только после оплаты», в админке ставится галочка — заказы приходят оплаченными.
+
+create or replace function public.tilda_order(p_key text, p_order jsonb, p_raw jsonb default null) returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+declare
+  v_key      text;
+  v_ext      text := nullif(left(btrim(coalesce(p_order->>'external_id', '')), 100), '');
+  v_phone    text := regexp_replace(coalesce(p_order->>'phone', ''), '\D', '', 'g');
+  v_name     text := nullif(left(btrim(coalesce(p_order->>'name', '')), 100), '');
+  v_email    text := nullif(lower(left(btrim(coalesce(p_order->>'email', '')), 200)), '');
+  v_items    jsonb := '[]'::jsonb;
+  v_sub      int := 0;
+  v_disc     int;
+  v_ship     int;
+  v_total    int;
+  v_paid     boolean;
+  v_customer uuid;
+  v_id       bigint;
+  x          jsonb;
+begin
+  select value into v_key from private.secrets where key = 'tilda_key';
+  if v_key is null or p_key is distinct from v_key then raise exception 'Неверный ключ Тильды'; end if;
+
+  if p_order is null then   -- проверочный запрос, который Тильда шлёт при подключении
+    insert into private.secrets (key, value) values ('tilda_last_test', now()::text)
+    on conflict (key) do update set value = excluded.value;
+    return jsonb_build_object('test', true);
+  end if;
+
+  if v_ext is not null then   -- Тильда может прислать тот же заказ повторно
+    select id into v_id from orders where source = 'tilda' and external_id = v_ext;
+    if found then return jsonb_build_object('id', v_id, 'duplicate', true); end if;
+  end if;
+
+  if length(v_phone) = 10 then v_phone := '7' || v_phone; end if;
+  if length(v_phone) = 11 and left(v_phone, 1) = '8' then v_phone := '7' || substr(v_phone, 2); end if;
+  if v_email is not null and v_email !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$' then v_email := null; end if;
+
+  for x in select value from jsonb_array_elements(
+             case when jsonb_typeof(p_order->'items') = 'array' then p_order->'items' else '[]'::jsonb end) loop
+    v_items := v_items || jsonb_build_object(
+      'id',    null,   -- товары Тильды не связаны с каталогом сайта, остатки не списываются
+      'name',  left(coalesce(nullif(btrim(x->>'name'), ''), 'Товар'), 300),
+      'price', greatest(coalesce(round((x->>'price')::numeric)::int, 0), 0),
+      'qty',   least(greatest(coalesce(round((x->>'qty')::numeric)::int, 1), 1), 999));
+  end loop;
+  select coalesce(sum((i->>'price')::int * (i->>'qty')::int), 0)::int into v_sub from jsonb_array_elements(v_items) i;
+  v_disc  := greatest(coalesce(round((p_order->>'discount')::numeric)::int, 0), 0);
+  v_ship  := greatest(coalesce(round((p_order->>'delivery_cost')::numeric)::int, 0), 0);
+  v_total := greatest(coalesce(round((p_order->>'total')::numeric)::int, v_sub - v_disc + v_ship), 0);
+  if v_sub = 0 then v_sub := greatest(v_total + v_disc - v_ship, 0); end if;   -- товары пришли без цен
+  v_paid  := coalesce((select value from private.secrets where key = 'tilda_paid'), 'false') = 'true';
+
+  if length(v_phone) between 10 and 15 then
+    insert into customers (phone, name, email) values (v_phone, coalesce(v_name, ''), v_email)
+    on conflict (phone) do update set
+      name  = case when customers.name = '' then excluded.name else customers.name end,
+      email = coalesce(excluded.email, customers.email)
+    returning id into v_customer;
+  end if;
+
+  insert into orders (kind, status, source, external_id, source_data, customer_id, name, phone, email, items,
+                      subtotal, discount, promo_code, delivery_name, delivery_cost, city, address, comment, total,
+                      paid_at, payment_provider, payment_id)
+  values ('order', case when v_paid then 'paid' else 'pending' end, 'tilda', v_ext, p_raw, v_customer,
+          coalesce(v_name, 'Без имени'), v_phone, v_email, v_items, v_sub, v_disc,
+          nullif(upper(left(btrim(coalesce(p_order->>'promo', '')), 50)), ''),
+          nullif(left(btrim(coalesce(p_order->>'delivery_name', '')), 200), ''), v_ship,
+          nullif(left(btrim(coalesce(p_order->>'city', '')), 100), ''),
+          nullif(left(btrim(coalesce(p_order->>'address', '')), 500), ''),
+          nullif(left(btrim(coalesce(p_order->>'comment', '')), 1000), ''), v_total,
+          case when v_paid then now() end, case when v_paid then 'tilda' end,
+          case when v_paid then nullif(left(btrim(coalesce(p_order->>'payment_id', '')), 100), '') end)
+  on conflict (source, external_id) where external_id is not null do nothing
+  returning id into v_id;
+  if v_id is null then   -- тот же заказ пришёл дважды одновременно
+    select id into v_id from orders where source = 'tilda' and external_id = v_ext;
+    return jsonb_build_object('id', v_id, 'duplicate', true);
+  end if;
+  return jsonb_build_object('id', v_id, 'status', case when v_paid then 'paid' else 'pending' end);
+end $$;
+revoke all on function public.tilda_order(text, jsonb, jsonb) from public, anon, authenticated;
+grant execute on function public.tilda_order(text, jsonb, jsonb) to service_role;
+
+-- настройка из админки: адрес-ключ для Тильды и «заказы приходят оплаченными»
+create or replace function public.tilda_settings() returns jsonb
+language plpgsql security definer set search_path = public, private as $$
+begin
+  if not public.is_admin() then raise exception 'Только для администратора'; end if;
+  insert into private.secrets (key, value)
+  values ('tilda_key', replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', ''))
+  on conflict (key) do nothing;
+  return jsonb_build_object(
+    'key',        (select value from private.secrets where key = 'tilda_key'),
+    'paid',       coalesce((select value from private.secrets where key = 'tilda_paid'), 'false') = 'true',
+    'last_test',  (select value from private.secrets where key = 'tilda_last_test'),
+    'orders',     (select count(*) from orders where source = 'tilda'),
+    'last_order', (select jsonb_build_object('id', id, 'created_at', created_at)
+                   from orders where source = 'tilda' order by id desc limit 1));
+end $$;
+revoke all on function public.tilda_settings() from public, anon;
+grant execute on function public.tilda_settings() to authenticated;
+
+create or replace function public.set_tilda(p_paid boolean, p_new_key boolean default false) returns void
+language plpgsql security definer set search_path = public, private as $$
+begin
+  if not public.is_admin() then raise exception 'Только для администратора'; end if;
+  if p_paid is not null then
+    insert into private.secrets (key, value) values ('tilda_paid', case when p_paid then 'true' else 'false' end)
+    on conflict (key) do update set value = excluded.value;
+  end if;
+  if p_new_key then delete from private.secrets where key in ('tilda_key', 'tilda_last_test'); end if;
+end $$;
+revoke all on function public.set_tilda(boolean, boolean) from public, anon;
+grant execute on function public.set_tilda(boolean, boolean) to authenticated;
 
 -- ───────────── права доступа (RLS) ─────────────
 

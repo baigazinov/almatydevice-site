@@ -130,6 +130,11 @@ code{background:var(--soft);border-radius:5px;padding:1px 5px;font-size:12.5px}
 .tg-chats .check{padding:10px 12px;border:1px solid var(--line);border-radius:10px;cursor:pointer;font-weight:600}
 .tg-chats .check:has(input:checked){border-color:var(--accent)}
 .tg-chats .check span{font-weight:400;color:var(--muted)}
+.src{display:inline-block;border-radius:6px;padding:0 6px;font-size:11px;font-weight:700;background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn);vertical-align:1px}
+details.raw summary{cursor:pointer;color:var(--muted);font-weight:600}
+details.raw pre{background:var(--soft);border-radius:10px;padding:10px 12px;overflow:auto;max-height:260px;font-size:12px;margin:8px 0 0;white-space:pre-wrap;word-break:break-word}
+.hook{display:grid;grid-template-columns:1fr auto;gap:10px}
+.hook .field{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
 
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:10px;font-weight:600;opacity:0;transition:.2s;pointer-events:none;z-index:100}
 .toast.show{opacity:1;transform:translateX(-50%)}
@@ -175,6 +180,7 @@ code{background:var(--soft);border-radius:5px;padding:1px 5px;font-size:12.5px}
     <button data-tab="products">Товары</button>
     <button data-tab="categories">Категории</button>
     <button data-tab="settings">Настройки сайта</button>
+    <button data-tab="tilda">Тильда</button>
     <button data-tab="telegram">Telegram</button>
     <button data-tab="staff">Сотрудники</button>
     <div class="me"><span id="meEmail"></span><a href="../" target="_blank">Открыть сайт ↗</a><button class="btn sm" id="logout">Выйти</button></div>
@@ -193,10 +199,11 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmt = n => Math.round(n || 0).toLocaleString("ru-RU") + " ₸";
 const dt = s => new Date(s).toLocaleString("ru-RU", {day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"});
-const phoneFmt = p => { const d = String(p||"").replace(/\D/g,""); return d.length === 11 ? `+${d[0]} ${d.slice(1,4)} ${d.slice(4,7)} ${d.slice(7,9)} ${d.slice(9)}` : "+" + d; };
+const phoneFmt = p => { const d = String(p||"").replace(/\D/g,""); if(!d) return "—"; return d.length === 11 ? `+${d[0]} ${d.slice(1,4)} ${d.slice(4,7)} ${d.slice(7,9)} ${d.slice(9)}` : "+" + d; };
 const STATUS = {paid:"Оплачен · к отгрузке", shipped:"Отправлен", done:"Доставлен", pending:"Ждёт оплаты", new:"Новая заявка", contacted:"Связались", canceled:"Отменён"};
 const ORDER_STATUSES = ["pending","paid","shipped","done","canceled"], PRE_STATUSES = ["new","contacted","done","canceled"];
 const stBadge = s => `<span class="st ${s}">${STATUS[s] || s}</span>`;
+const srcTag = o => o.source === "tilda" ? ` <span class="src" title="Заказ с Тильды${o.external_id ? " №" + esc(o.external_id) : ""}">Тильда</span>` : "";
 let tt; function toast(t){ const el = $("#toast"); el.textContent = t; el.classList.add("show"); clearTimeout(tt); tt = setTimeout(() => el.classList.remove("show"), 2400); }
 const fail = e => { console.error(e); toast("Ошибка: " + (e.message || e)); };
 
@@ -228,7 +235,7 @@ async function boot(session){
   ROLE = data.role;
   $("#meEmail").textContent = `${ME.email} · ${ROLE === "admin" ? "админ" : "менеджер"}`;
   $("#login").hidden = true; $("#app").hidden = false;
-  document.querySelectorAll('[data-tab="staff"],[data-tab="telegram"]').forEach(b => b.hidden = ROLE !== "admin");
+  document.querySelectorAll('[data-tab="staff"],[data-tab="telegram"],[data-tab="tilda"]').forEach(b => b.hidden = ROLE !== "admin");
   const h = location.hash.slice(1); show(h && TABS[h] ? h : "orders");
   refreshNewCount();
   sb.channel("orders")
@@ -283,7 +290,7 @@ const TABS = {};
 
 /* ───────── заказы ───────── */
 const OF = {status:"active", q:"", period:"30"};
-const FILTERS = {active:"В работе", ship:"К отгрузке", pending:"Ждут оплаты", pre:"Заявки на предзаказ", all:"Все", done:"Доставлены", canceled:"Отменённые"};
+const FILTERS = {active:"В работе", ship:"К отгрузке", pending:"Ждут оплаты", pre:"Заявки на предзаказ", tilda:"С Тильды", all:"Все", done:"Доставлены", canceled:"Отменённые"};
 const deliveryLine = o => [o.delivery_name, o.city, o.address].filter(Boolean).join(", ");
 TABS.orders = async () => {
   sb.rpc("expire_pending").then(() => {});
@@ -298,9 +305,10 @@ TABS.orders = async () => {
   else if(f === "ship") list = list.filter(o => o.status === "paid");
   else if(f === "pending") list = list.filter(o => o.status === "pending");
   else if(f === "pre") list = list.filter(o => o.kind === "preorder");
+  else if(f === "tilda") list = list.filter(o => o.source === "tilda");
   else if(f !== "all") list = list.filter(o => o.status === f);
   if(f === "ship") list = [...list].reverse();   // к отгрузке — сначала самые старые оплаты
-  if(OF.q){ const s = OF.q.toLowerCase(), d = s.replace(/\D/g,""); list = list.filter(o => String(o.id) === s.replace("№","") || o.name.toLowerCase().includes(s) || (d && o.phone.includes(d))); }
+  if(OF.q){ const s = OF.q.toLowerCase(), d = s.replace(/\D/g,""); list = list.filter(o => String(o.id) === s.replace("№","") || o.external_id === s.replace("№","") || o.name.toLowerCase().includes(s) || (d && o.phone.includes(d))); }
   const period = {"1":"сегодня","7":"за 7 дней","30":"за 30 дней","all":"за всё время"}[OF.period];
   const pendingN = data.filter(o => o.status === "pending").length;
   $("#main").innerHTML = `
@@ -317,12 +325,12 @@ TABS.orders = async () => {
       <select class="field" id="op"><option value="1">Сегодня</option><option value="7">7 дней</option><option value="30">30 дней</option><option value="all">Всё время</option></select>
       <button class="btn" id="oexp">Скачать CSV</button>
     </div>
-    ${f === "pending" ? `<p class="muted" style="margin:-4px 0 14px">Покупатель оформил заказ, но ещё не оплатил. Через 24 часа без оплаты заказ отменяется сам. Если клиент оплатил переводом, откройте заказ и нажмите «Подтвердить оплату».</p>` : ""}
+    ${f === "pending" ? `<p class="muted" style="margin:-4px 0 14px">Покупатель оформил заказ, но ещё не оплатил. Заказ с сайта без оплаты через 24 часа отменяется сам, заказ с Тильды ждёт, пока вы его подтвердите или отмените. Если клиент оплатил переводом, откройте заказ и нажмите «Подтвердить оплату».</p>` : ""}
     <div class="table"><table>
       <thead><tr><th>№</th><th class="hide-m">Дата</th><th>Клиент</th><th class="hide-m">Состав</th><th class="hide-m">Доставка</th><th class="num">Сумма</th><th>Статус</th></tr></thead>
       <tbody>${list.map(o => `
         <tr class="click" data-id="${o.id}">
-          <td><b>${o.id}</b></td><td class="muted hide-m">${dt(o.created_at)}</td>
+          <td><b>${o.id}</b>${srcTag(o)}</td><td class="muted hide-m">${dt(o.created_at)}</td>
           <td>${esc(o.name)}<br><span class="muted">${phoneFmt(o.phone)}</span></td>
           <td class="hide-m">${o.kind === "preorder" ? `<i>Предзаказ:</i> ${esc(o.request)}` : o.items.map(i => `${esc(i.name)} × ${i.qty}`).join("<br>")}</td>
           <td class="hide-m muted">${esc(deliveryLine(o)) || "—"}</td>
@@ -335,8 +343,8 @@ TABS.orders = async () => {
   $("#os").onchange = e => { OF.status = e.target.value; TABS.orders(); };
   $("#op").onchange = e => { OF.period = e.target.value; TABS.orders(); };
   $("#oexp").onclick = () => csv(`orders-${new Date().toISOString().slice(0,10)}.csv`,
-    [["№","Дата","Тип","Статус","Имя","Телефон","Email","Состав","Товары","Скидка","Промокод","Доставка","Стоимость доставки","Итого","Оплачен","Комментарий","Заметка"],
-     ...list.map(o => [o.id, new Date(o.created_at).toLocaleString("ru-RU"), o.kind === "preorder" ? "Предзаказ" : "Заказ", STATUS[o.status], o.name, "+" + o.phone, o.email || "",
+    [["№","Источник","Дата","Тип","Статус","Имя","Телефон","Email","Состав","Товары","Скидка","Промокод","Доставка","Стоимость доставки","Итого","Оплачен","Комментарий","Заметка"],
+     ...list.map(o => [o.id, o.source === "tilda" ? `Тильда${o.external_id ? " №" + o.external_id : ""}` : "Сайт", new Date(o.created_at).toLocaleString("ru-RU"), o.kind === "preorder" ? "Предзаказ" : "Заказ", STATUS[o.status], o.name, o.phone ? "+" + o.phone : "", o.email || "",
        o.kind === "preorder" ? o.request : o.items.map(i => `${i.name} × ${i.qty}`).join("; "), o.subtotal, o.discount, o.promo_code || "", deliveryLine(o), o.delivery_cost || 0, o.total,
        o.paid_at ? new Date(o.paid_at).toLocaleString("ru-RU") : "", o.comment || "", o.manager_note])]);
   document.querySelectorAll("tr[data-id]").forEach(tr => tr.onclick = () => orderDialog(data.find(o => o.id == tr.dataset.id)));
@@ -344,14 +352,14 @@ TABS.orders = async () => {
 function orderDialog(o){
   const wa = `https://wa.me/${o.phone}`, pre = o.kind === "preorder";
   const opts = (pre ? PRE_STATUSES : ORDER_STATUSES).concat(pre || ORDER_STATUSES.includes(o.status) ? [] : [o.status]);
-  const PROV = {manual:"подтверждено вручную"};
+  const PROV = {manual:"подтверждено вручную", tilda:"оплачен на Тильде"}, tilda = o.source === "tilda";
   openDialog(`
-    <h3>${pre ? "Заявка на предзаказ" : "Заказ"} №${o.id} <span class="muted" style="font-weight:500;font-size:14px">от ${new Date(o.created_at).toLocaleString("ru-RU")}</span></h3>
+    <h3>${pre ? "Заявка на предзаказ" : "Заказ"} №${o.id}${srcTag(o)} <span class="muted" style="font-weight:500;font-size:14px">от ${new Date(o.created_at).toLocaleString("ru-RU")}${tilda && o.external_id ? ` · в Тильде №${esc(o.external_id)}` : ""}</span></h3>
     <div class="grid2">
-      <div><b>${esc(o.name)}</b><br><a href="tel:+${o.phone}">${phoneFmt(o.phone)}</a> · <a href="${wa}" target="_blank" rel="noopener">WhatsApp</a>${o.email ? `<br><a href="mailto:${esc(o.email)}">${esc(o.email)}</a>` : ""}</div>
+      <div><b>${esc(o.name)}</b><br>${o.phone ? `<a href="tel:+${o.phone}">${phoneFmt(o.phone)}</a> · <a href="${wa}" target="_blank" rel="noopener">WhatsApp</a>` : `<span class="muted">телефон не пришёл</span>`}${o.email ? `<br><a href="mailto:${esc(o.email)}">${esc(o.email)}</a>` : ""}</div>
       <label>Статус<select class="field" name="status">${opts.map(k => `<option value="${k}" ${k === o.status ? "selected" : ""} ${k === "paid" && o.status === "pending" ? "disabled" : ""}>${STATUS[k]}</option>`).join("")}</select></label>
     </div>
-    ${o.status === "pending" ? `<div class="paybox"><span>Оплата не поступила. Если клиент оплатил переводом или по счёту Kaspi, подтвердите — заказ уйдёт в отгрузку, остатки спишутся.</span><button class="btn pri sm" value="confirm" formnovalidate>Подтвердить оплату</button></div>` : ""}
+    ${o.status === "pending" ? `<div class="paybox"><span>${tilda ? "Оплата не отмечена. Если клиент оплатил, подтвердите — заказ уйдёт в отгрузку." : "Оплата не поступила. Если клиент оплатил переводом или по счёту Kaspi, подтвердите — заказ уйдёт в отгрузку, остатки спишутся."}</span><button class="btn pri sm" value="confirm" formnovalidate>Подтвердить оплату</button></div>` : ""}
     ${pre ? `<div class="items"><div>${esc(o.request)}</div></div>` : `
     <div class="items">
       ${o.items.map(i => `<div><span>${esc(i.name)} × ${i.qty}</span><span>${fmt(i.price * i.qty)}</span></div>`).join("")}
@@ -362,6 +370,7 @@ function orderDialog(o){
     ${o.address || o.city ? `<div><span class="muted">Адрес доставки:</span> ${esc([o.city, o.address].filter(Boolean).join(", "))}</div>` : ""}
     ${o.comment ? `<div><span class="muted">Комментарий покупателя:</span> ${esc(o.comment)}</div>` : ""}
     ${o.paid_at ? `<div class="muted">Оплачен ${new Date(o.paid_at).toLocaleString("ru-RU")} · ${esc(PROV[o.payment_provider] || o.payment_provider || "")}${o.payment_id ? " · " + esc(o.payment_id) : ""}</div>` : ""}`}
+    ${o.source_data ? `<details class="raw"><summary>Всё, что прислала Тильда</summary><pre>${esc(JSON.stringify(o.source_data, null, 2))}</pre></details>` : ""}
     <label>Заметка менеджера<textarea class="field" name="note" placeholder="Трек-номер, договорённости">${esc(o.manager_note)}</textarea></label>
     <div class="actions">
       ${ROLE === "admin" ? `<button class="btn danger left" value="delete" formnovalidate>Удалить</button>` : ""}
@@ -615,6 +624,71 @@ TABS.settings = async () => {
     btn.disabled = false;
     if(error) return fail(error);
     toast("Сохранено. Сайт обновится при следующей загрузке страницы");
+  };
+};
+
+/* ───────── Тильда ───────── */
+TABS.tilda = async () => {
+  if(ROLE !== "admin"){ $("#main").innerHTML = `<p class="muted">Раздел доступен только администратору.</p>`; return; }
+  const { data: st, error } = await sb.rpc("tilda_settings");
+  if(error){
+    if(error.code === "PGRST202" || /tilda_settings/.test(error.message || "")){
+      $("#main").innerHTML = `<h2>Заказы с Тильды</h2><div class="panel"><p class="muted" style="margin:0">Сначала обновите базу: выполните файл <code>supabase/schema.sql</code> в Supabase → SQL Editor.</p></div>`;
+      return;
+    }
+    throw error;
+  }
+  const hook = `${CFG.supabaseUrl}/functions/v1/tilda-order?key=${st.key}`;
+  const when = s => new Date(s).toLocaleString("ru-RU");
+  const state = st.last_order
+    ? `<span class="st done">Работает</span>&nbsp; Получено заказов: ${st.orders}, последний — №${st.last_order.id} от ${when(st.last_order.created_at)}.`
+    : st.last_test
+      ? `<span class="st done">Тильда подключена</span>&nbsp; Проверочный запрос пришёл ${when(st.last_test)}. Заказов пока не было.`
+      : `<span class="st">Не подключено</span>&nbsp; Тильда ещё не присылала сюда данные.`;
+  $("#main").innerHTML = `
+    <h2>Заказы с Тильды</h2>
+    <div class="panel">
+      <p style="margin:0">${state}</p>
+      <p class="tg-msg" id="hookCheck"></p>
+      <p class="muted" style="margin:0">Каждый заказ с сайта на Тильде появится в «Заказах» с пометкой <span class="src">Тильда</span>: клиент сохранится по телефону, придёт уведомление в Telegram. Товары, цены и остатки Тильды ведутся в самой Тильде — эта админка их не меняет.</p>
+    </div>
+    <div class="panel">
+      <h3>Подключение</h3>
+      <ol class="steps">
+        <li><b>Скопируйте адрес.</b> В нём секретный ключ — не публикуйте его.
+          <div class="hook"><input class="field" id="hook" readonly value="${esc(hook)}"><button class="btn" type="button" id="hookCopy">Копировать</button></div></li>
+        <li><b>Вставьте его в Тильду.</b> Тильда → ваш сайт → <b>Настройки сайта</b> → <b>Формы</b> → внизу <b>Webhook</b> → вставьте адрес → <b>Добавить</b>. Тильда отправит проверочный запрос, и статус вверху сменится на «Тильда подключена» (обновите страницу).</li>
+        <li><b>Включите вебхук в корзине.</b> Откройте страницу с корзиной → блок корзины → <b>Контент</b> → <b>Сервисы приёма данных</b> → отметьте Webhook → сохраните и опубликуйте страницу. Так же можно отметить его в других формах сайта.</li>
+        <li><b>Сделайте тестовый заказ</b> на сайте — он появится в «Заказах» с пометкой Тильда.</li>
+      </ol>
+    </div>
+    <form class="panel" id="tlf">
+      <h3>Оплата</h3>
+      <label class="check"><input type="checkbox" name="paid" ${st.paid ? "checked" : ""}> Заказы приходят уже оплаченными — сразу в «К отгрузке»</label>
+      <p class="muted" style="margin:0">Ставьте галочку, только если на Тильде подключена онлайн-оплата и в настройках вебхука в Тильде включено <b>«Отправлять только после оплаты»</b>. Без галочки заказы приходят в «Ждут оплаты», и оплату вы подтверждаете сами.</p>
+      <div class="actions" style="justify-content:flex-start"><button class="btn pri">Сохранить</button><button class="btn danger" type="button" id="newKey">Выдать новый ключ</button></div>
+    </form>`;
+
+  // работает ли приёмник на сервере
+  fetch(hook.replace(/\?.*$/, "")).then(r => {
+    if(r.ok) return;
+    $("#hookCheck").className = "tg-msg bad";
+    $("#hookCheck").textContent = r.status === 401 ? "Приёмник выложен с проверкой JWT — его нужно выложить с флагом --no-verify-jwt." : "Приёмник заказов ещё не выложен на сервер — Тильда не сможет отправить заказы.";
+  }).catch(() => { $("#hookCheck").className = "tg-msg bad"; $("#hookCheck").textContent = "Приёмник заказов ещё не выложен на сервер — Тильда не сможет отправить заказы."; });
+
+  $("#hookCopy").onclick = async () => {
+    try{ await navigator.clipboard.writeText(hook); toast("Адрес скопирован"); }
+    catch(e){ $("#hook").select(); toast("Выделил адрес — нажмите Cmd+C"); }
+  };
+  $("#tlf").onsubmit = async e => {
+    e.preventDefault();
+    const { error } = await sb.rpc("set_tilda", {p_paid: e.target.paid.checked}); if(error) return fail(error);
+    toast("Сохранено"); TABS.tilda();
+  };
+  $("#newKey").onclick = async () => {
+    if(!confirm("Выдать новый ключ? Старый адрес перестанет работать — новый нужно будет вставить в Тильду вместо старого.")) return;
+    const { error } = await sb.rpc("set_tilda", {p_paid: null, p_new_key: true}); if(error) return fail(error);
+    toast("Новый ключ выдан — обновите адрес в Тильде"); TABS.tilda();
   };
 };
 
